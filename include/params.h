@@ -25,6 +25,8 @@ THE SOFTWARE.
 #ifndef _BLUEDBM_PARAMS_H
 #define _BLUEDBM_PARAMS_H
 
+#define DWHONG	// Test
+#define COPYBACK_SUPPORT
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE
