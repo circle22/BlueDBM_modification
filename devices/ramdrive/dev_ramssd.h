@@ -50,6 +50,13 @@ typedef struct {
 	bdbm_stopwatch_t sw;
 } dev_ramssd_punit_t;
 
+#ifdef DWHONG
+typedef struct {
+	int64_t target_elapsed_time_us;
+	bdbm_stopwatch_t sw;
+} dev_ramssd_channel_t;
+#endif
+
 #if defined (KERNEL_MODE)
 typedef struct {
 	struct work_struct work; /* it must be at the end of structre */
@@ -70,6 +77,10 @@ typedef struct {
 	struct hrtimer hrtimer;	/* hrtimer must be at the end of the structure */
 	struct workqueue_struct *wq;
 	dev_ramssd_wq_t works;
+#endif
+
+#ifdef DWHONG
+	dev_ramssd_channel_t* ptr_channels;	/* channel */
 #endif
 } dev_ramssd_info_t;
 

@@ -129,8 +129,20 @@ bdbm_device_params_t get_default_device_params (void)
  	p.page_main_size = _param_page_main_size;
  	p.page_oob_size = _param_page_oob_size;
 	p.device_type = _param_device_type;
+#ifdef DWHONG
+	p.page_lsb_prog_time_us = 250; 
+	p.page_lsb_prog_time_us = 1050;
+	
+	p.read_dma_time_us = 20;
+	p.prog_dma_time_us = 102;
+	p.gc_read_dma_time_us = 102;	
+	p.page_read_time_us = 50;	// tR 50us.
+#else
  	p.page_prog_time_us = _param_page_prog_time_us;
  	p.page_read_time_us = _param_page_read_time_us;
+#endif
+	
+
  	p.block_erase_time_us = _param_block_erase_time_us;
  
  	/* other parameters derived from user parameters */

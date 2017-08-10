@@ -608,6 +608,20 @@ dev_ramssd_info_t* dev_ramssd_create (
 		ri->ptr_punits[loop].ptr_req = NULL;
 	}
 
+#ifdef DWHONG
+	/* create channel busy checker */
+	if ((ri->ptr_channels = (dev_ramssd_channel_t*)
+			bdbm_malloc_atomic (sizeof (dev_ramssd_channel_t) * ri->np->nr_channels)) == NULL) {
+		bdbm_error ("bdbm_malloc_atomic failed");
+		goto fail_punits;
+	}
+
+	for (loop = 0; loop < ri->np->nr_channels; loop++) {
+		bdbm_stopwatch_start(&(ri->ptr_channels[loop].sw));
+		ri->ptr_channels[loop].target_elapsed_time_us = 0;
+	}
+#endif
+
 	/* create and register a tasklet */
 	if (__ramssd_timing_create (ri) != 0) {
 		bdbm_error ("__ramssd_timing_create () failed");
@@ -663,13 +677,86 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			case REQTYPE_GC_WRITE:
 			case REQTYPE_RMW_WRITE:
 			case REQTYPE_META_WRITE:
+
+#ifndef DWHONG
 				target_elapsed_time_us = ri->np->page_prog_time_us;
+#else
+				// check the channel busy time
+				dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
+				int64_t channel_busy_time = ri->np->prog_dma_time_us;
+				int64_t elapsed_time_in_us;
+
+#ifdef	COPYBACK_SUPPORT
+				if (r->req_type == REQTYPE_GC_WRITE)
+				{
+					channel_busy_time = 0;
+				}
+#endif	// COPYBACK_SUPPORT
+				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw);
+				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
+				{	// channel is idle.
+					// start time update.
+					bdbm_stopwatch_start (&(ptr_channels->sw);
+					ptr_channels->target_elapsed_time_us = channel_busy_time;
+				}
+				else
+				{	// channel is busy - busy time will be accumulated.
+					ptr_channels->target_elapsed_time_us += channel_busy_time;
+					channel_busy_time += (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
+				}
+
+				//channel busy time + NAND Operation.
+				target_elapsed_time_us = channel_busy_time;
+
+				#define NR_PAGE_PER_WORDLINE  (2)
+				if (r->phyaddr.page_no % NR_PAGE_PER_WORDLINE)
+				{	// LSB page
+					target_elapsed_time_us += ri->np->page_lsb_prog_time_us;
+				}
+				else
+				{	// MSB.
+					target_elapsed_time_us += ri->np->page_msb_prog_time_us;
+				}
+#endif	// DWHONG			
 				break;
 			case REQTYPE_READ:
 			case REQTYPE_GC_READ:
 			case REQTYPE_RMW_READ:
 			case REQTYPE_META_READ:
+
 				target_elapsed_time_us = ri->np->page_read_time_us;
+#ifdef DWHONG
+				// check the channel busy time
+				dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
+				int64_t channel_busy_time = ri->np->read_dma_time_us;
+				int64_t elapsed_time_in_us;
+
+				if (r->req_type == REQTYPE_GC_READ)
+				{
+#ifdef	COPYBACK_SUPPORT
+					channel_busy_time = 0;
+#else
+					channel_busy_time = ri->np->gc_read_dma_time_us;
+#endif	//COPYBACK_SUPPORT
+				}
+
+				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw);
+				if (elapsed_time_in_us >=ptr_channels->target_elapsed_time_us)
+				{	// channel is idle.
+					// start time update.
+					bdbm_stopwatch_start (&(ptr_channels->sw);
+					ptr_channels->target_elapsed_time_us = channel_busy_time;
+				}
+				else
+				{	// channel is busy - busy time will be accumulated.
+					ptr_channels->target_elapsed_time_us += channel_busy_time;
+					channel_busy_time += (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
+				}
+
+				//channel busy time + NAND Operation.
+				target_elapsed_time_us = channel_busy_time;
+#endif	// DWHONG
+
 				break;
 			case REQTYPE_GC_ERASE:
 				target_elapsed_time_us = ri->np->block_erase_time_us;
@@ -685,7 +772,8 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			if (target_elapsed_time_us > 0) {
 				target_elapsed_time_us -= (target_elapsed_time_us / 10);
 			}
-		} else {
+		} 
+		else {
 			target_elapsed_time_us = 0;
 		}
 

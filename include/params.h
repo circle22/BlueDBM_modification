@@ -119,7 +119,15 @@ typedef struct {
 	uint64_t page_oob_size;
 	uint32_t device_type;
 	uint64_t device_capacity_in_byte;
+#ifdef DWHONG
+	uint64_t page_lsb_prog_time_us;
+	uint64_t page_msb_prog_time_us;
+	uint64_t read_dma_time_us;
+	uint64_t prog_dma_time_us;
+	uint64_t gc_read_dma_time_us;	
+#else
 	uint64_t page_prog_time_us;
+#endif
 	uint64_t page_read_time_us;
 	uint64_t block_erase_time_us;
 
