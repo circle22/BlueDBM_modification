@@ -672,6 +672,10 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 
 		/* get the target elapsed time depending on the type of req */
 		if (ri->emul_mode == DEVICE_TYPE_RAMDRIVE_TIMING) {
+			dev_ramssd_channel_t* ptr_channels; 
+			int64_t channel_busy_time;
+			int64_t elapsed_time_in_us;
+
 			switch (r->req_type) {
 			case REQTYPE_WRITE:
 			case REQTYPE_GC_WRITE:
@@ -682,9 +686,8 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				target_elapsed_time_us = ri->np->page_prog_time_us;
 #else
 				// check the channel busy time
-				dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
-				int64_t channel_busy_time = ri->np->prog_dma_time_us;
-				int64_t elapsed_time_in_us;
+				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
+				channel_busy_time = ri->np->prog_dma_time_us;
 
 #ifdef	COPYBACK_SUPPORT
 				if (r->req_type == REQTYPE_GC_WRITE)
@@ -692,11 +695,11 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 					channel_busy_time = 0;
 				}
 #endif	// COPYBACK_SUPPORT
-				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw);
+				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ptr_channels->sw));
 				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
 				{	// channel is idle.
 					// start time update.
-					bdbm_stopwatch_start (&(ptr_channels->sw);
+					bdbm_stopwatch_start (&(ptr_channels->sw));
 					ptr_channels->target_elapsed_time_us = channel_busy_time;
 				}
 				else
@@ -727,9 +730,8 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				target_elapsed_time_us = ri->np->page_read_time_us;
 #ifdef DWHONG
 				// check the channel busy time
-				dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
-				int64_t channel_busy_time = ri->np->read_dma_time_us;
-				int64_t elapsed_time_in_us;
+				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
+				channel_busy_time = ri->np->read_dma_time_us;
 
 				if (r->req_type == REQTYPE_GC_READ)
 				{
@@ -740,11 +742,11 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 #endif	//COPYBACK_SUPPORT
 				}
 
-				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw);
+				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
 				if (elapsed_time_in_us >=ptr_channels->target_elapsed_time_us)
 				{	// channel is idle.
 					// start time update.
-					bdbm_stopwatch_start (&(ptr_channels->sw);
+					bdbm_stopwatch_start (&(ptr_channels->sw));
 					ptr_channels->target_elapsed_time_us = channel_busy_time;
 				}
 				else

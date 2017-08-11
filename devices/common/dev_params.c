@@ -131,7 +131,7 @@ bdbm_device_params_t get_default_device_params (void)
 	p.device_type = _param_device_type;
 #ifdef DWHONG
 	p.page_lsb_prog_time_us = 250; 
-	p.page_lsb_prog_time_us = 1050;
+	p.page_msb_prog_time_us = 1050;
 	
 	p.read_dma_time_us = 20;
 	p.prog_dma_time_us = 102;
