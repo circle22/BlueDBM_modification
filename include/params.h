@@ -27,6 +27,8 @@ THE SOFTWARE.
 
 #define DWHONG	// Test
 #define COPYBACK_SUPPORT
+#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
+
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE
@@ -126,9 +128,9 @@ typedef struct {
 	uint64_t page_msb_prog_time_us;
 	uint64_t read_dma_time_us;
 //	uint64_t prog_dma_time_us;
-	uint64_t gc_read_dma_time_us;	
-
-	uint64_t prog_dma_time_us[12];
+//	uint64_t gc_read_dma_time_us;	
+	uint64_t gc_read_dma_time_us[9];	
+	uint64_t prog_dma_time_us[9];
 #else
 	uint64_t page_prog_time_us;
 #endif

@@ -730,7 +730,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			int64_t channel_busy_time;
 			int64_t elapsed_time_in_us;
 
-			uint32_t count = 0;
+			uint32_t count = 8;
 
 			switch (r->req_type) {
 			case REQTYPE_WRITE:
@@ -741,33 +741,25 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 #ifndef DWHONG
 				target_elapsed_time_us = ri->np->page_prog_time_us;
 #else
+
+#ifdef DYNAMIC_DMA
 				// check the channel busy time
-				if (ri->is_busy[r->phyaddr.channel_no]==0)
+				if (ri->is_busy[r->phyaddr.channel_no] == 0)
 				{
 					ri->is_busy[r->phyaddr.channel_no] = 1;
 					atomic_inc(&ri->busy_channel);
-
-					count = atomic_read(&ri->busy_channel);
-					if ( count > 8)
-					{		
-						bdbm_msg("counting issue happend... %lu\n", count);
-						count = 8;
-					}
-					else
-					{
-
-						bdbm_msg("    normal count... %lu\n", count);
-					}	
 				}
-				else
-				{
-					count = atomic_read(&ri->busy_channel);
+				
+				count = atomic_read(&ri->busy_channel);
+				if (count > 8)
+				{		
+					bdbm_msg("counting issue happend... %lu\n", count);
+					count = 8;
 				}
-
+#endif
 				//channel_busy_time = ri->np->prog_dma_time_us;
 				channel_busy_time = ri->np->prog_dma_time_us[count];
 				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
-
 				
 				bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
 
@@ -787,7 +779,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				else
 				{	// channel is busy - busy time will be accumulated.
 					ptr_channels->target_elapsed_time_us += channel_busy_time;
-					channel_busy_time += (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
+					channel_busy_time = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us); // update channel_busy time
 				}
 
 				//channel busy time + NAND Operation.
@@ -820,12 +812,29 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 #ifdef	COPYBACK_SUPPORT
 					channel_busy_time = 0;
 #else
-					channel_busy_time = ri->np->gc_read_dma_time_us;
+
+#ifdef DYNAMIC_DMA
+					// check the channel busy time
+					if (ri->is_busy[r->phyaddr.channel_no] == 0)
+					{
+						ri->is_busy[r->phyaddr.channel_no] = 1;
+						atomic_inc(&ri->busy_channel);
+					}
+					
+					count = atomic_read(&ri->busy_channel);
+					if ( count > 8)
+					{		
+						bdbm_msg("counting issue happend... %lu\n", count);
+						count = 8;
+					}
+#endif
+
+					channel_busy_time = ri->np->gc_read_dma_time_us[count];
 #endif	//COPYBACK_SUPPORT
 				}
 
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
-				if (elapsed_time_in_us >=ptr_channels->target_elapsed_time_us)
+				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
 				{	// channel is idle.
 					// start time update.
 					bdbm_stopwatch_start (&(ptr_channels->sw));
@@ -834,7 +843,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				else
 				{	// channel is busy - busy time will be accumulated.
 					ptr_channels->target_elapsed_time_us += channel_busy_time;
-					channel_busy_time += (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
+					channel_busy_time = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
 				}
 
 				//channel busy time + NAND Operation.

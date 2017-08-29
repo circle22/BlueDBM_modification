@@ -135,7 +135,18 @@ bdbm_device_params_t get_default_device_params (void)
 	
 	p.read_dma_time_us = 20;
 //	p.prog_dma_time_us = 205; //102;
-	p.gc_read_dma_time_us = 102;	
+//	p.gc_read_dma_time_us = 102;	
+
+	p.gc_read_dma_time_us[0] = 53;
+	p.gc_read_dma_time_us[1] = 53;
+	p.gc_read_dma_time_us[2] = 53;
+	p.gc_read_dma_time_us[3] = 53;
+	p.gc_read_dma_time_us[4] = 56;
+	p.gc_read_dma_time_us[5] = 70;
+	p.gc_read_dma_time_us[6] = 83;
+	p.gc_read_dma_time_us[7] = 96;
+	p.gc_read_dma_time_us[7] = 112;
+
 	p.page_read_time_us = 50;	// tR 50us.
 
 	// 16KB....
