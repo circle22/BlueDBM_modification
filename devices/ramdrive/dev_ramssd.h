@@ -43,7 +43,6 @@ THE SOFTWARE.
 #include "params.h"
 #include "utime.h"
 
-
 typedef struct {
 	void* ptr_req;
 	int64_t target_elapsed_time_us;
@@ -81,6 +80,9 @@ typedef struct {
 
 #ifdef DWHONG
 	dev_ramssd_channel_t* ptr_channels;	/* channel */
+
+	uint32_t is_busy[16];
+	atomic_t busy_channel;
 #endif
 } dev_ramssd_info_t;
 

@@ -125,8 +125,10 @@ typedef struct {
 	uint64_t page_lsb_prog_time_us;
 	uint64_t page_msb_prog_time_us;
 	uint64_t read_dma_time_us;
-	uint64_t prog_dma_time_us;
+//	uint64_t prog_dma_time_us;
 	uint64_t gc_read_dma_time_us;	
+
+	uint64_t prog_dma_time_us[12];
 #else
 	uint64_t page_prog_time_us;
 #endif
