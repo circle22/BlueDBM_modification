@@ -1,0 +1,23 @@
+---- ac_bab Matches (22 in 2 files) ----
+Dftl.c (ftl\algo):	bdbm_abm_block_t** ac_bab;
+Dftl.c (ftl\algo):	if ((p->ac_bab = __bdbm_dftl_create_active_blocks (np, p->bai)) == NULL) {
+Dftl.c (ftl\algo):	if (p->ac_bab)
+Dftl.c (ftl\algo):		__bdbm_dftl_destroy_active_blocks (p->ac_bab);
+Dftl.c (ftl\algo):	b = p->ac_bab[curr_channel * np->nr_chips_per_channel + curr_chip];
+Dftl.c (ftl\algo):			if (__bdbm_dftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Dftl.c (ftl\algo):	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
+Dftl.c (ftl\algo):	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
+Dftl.c (ftl\algo):	if (__bdbm_dftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Dftl.c (ftl\algo):	if (__bdbm_dftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Page_ftl.c (ftl\algo):	bdbm_abm_block_t** ac_bab;
+Page_ftl.c (ftl\algo):	if ((p->ac_bab = __bdbm_page_ftl_create_active_blocks (np, p->bai)) == NULL) {
+Page_ftl.c (ftl\algo):	if (p->ac_bab)
+Page_ftl.c (ftl\algo):		__bdbm_page_ftl_destroy_active_blocks (p->ac_bab);
+Page_ftl.c (ftl\algo):	b = p->ac_bab[curr_channel * np->nr_chips_per_channel + curr_chip];
+Page_ftl.c (ftl\algo):			if (__bdbm_page_ftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Page_ftl.c (ftl\algo):	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
+Page_ftl.c (ftl\algo):	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
+Page_ftl.c (ftl\algo):	if (__bdbm_page_ftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Page_ftl.c (ftl\algo):		b = p->ac_bab[i*np->nr_chips_per_channel + j];
+Page_ftl.c (ftl\algo):	if (__bdbm_page_ftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {
+Page_ftl.c (ftl\algo):	if (__bdbm_page_ftl_get_active_blocks (np, p->bai, p->ac_bab) != 0) {

@@ -60,6 +60,8 @@ enum BDBM_ABM_BLK_STATUS {
 
 typedef struct {
 	uint8_t status;	/* ABM_BLK_STATUS */
+	uint8_t copy_count; // cumulative copyback count
+	uint32_t update_time;
 	uint64_t channel_no;
 	uint64_t chip_no;
 	uint64_t block_no;
