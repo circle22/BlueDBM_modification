@@ -730,7 +730,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			int64_t channel_busy_time;
 			int64_t elapsed_time_in_us;
 
-			uint32_t count = 8;
+			uint32_t count = 1;
 
 			switch (r->req_type) {
 			case REQTYPE_WRITE:
@@ -761,7 +761,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				channel_busy_time = ri->np->prog_dma_time_us[count];
 				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
 				
-				bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
+	//			bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
 
 #ifdef	COPYBACK_SUPPORT
 				if (r->req_type == REQTYPE_GC_WRITE)

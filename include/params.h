@@ -26,8 +26,8 @@ THE SOFTWARE.
 #define _BLUEDBM_PARAMS_H
 
 #define DWHONG	// Test
-#define COPYBACK_SUPPORT
-#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
+//#define COPYBACK_SUPPORT
+//#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(3)
 
 

@@ -268,7 +268,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		}
 
 		if ((p->gc_dst_blk_offs[i] = (uint64_t*)bdbm_zmalloc
-				(sizeof(uint64_t) * p->nr_punits) == NULL))
+				(sizeof(uint64_t) * p->nr_punits)) == NULL)
 		{
 			bdbm_error ("bdbm_zmalloc failed");
 			bdbm_page_ftl_destroy (bdi);		
@@ -276,8 +276,8 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	}
 
 	// src block offset.
-	if (p->gc_src_blk_offs = (uint64_t*)bdbm_zmalloc
-			(sizeof(uint64_t) * p->nr_punits) == NULL)
+	if ((p->gc_src_blk_offs = (uint64_t*)bdbm_zmalloc
+			(sizeof(uint64_t) * p->nr_punits)) == NULL)
 	{
 		bdbm_error ("bdbm_zmalloc failed");
 		bdbm_page_ftl_destroy (bdi);		
@@ -847,8 +847,8 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 	
 	nr_punits = np->nr_channels * np->nr_chips_per_channel;
 
-	if ( (hlm_gc->nr_llm_reqs >= hlm_gc->nr_llm_reqs_done + nr_punits) ||
-	  	 (hlm_gc_w->nr_llm_reqs >= hlm_gc_w->nr_llm_reqs_done + nr_punits) )
+	if ( (hlm_gc->nr_llm_reqs >= atomic64_read(&hlm_gc->nr_llm_reqs_done) + nr_punits) ||
+	  	 (hlm_gc_w->nr_llm_reqs >= atomic64_read(&hlm_gc_w->nr_llm_reqs_done) + nr_punits) )
 	{
 		/* issued request is still pending */
 
@@ -863,7 +863,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 			src_blk = p->gc_src_bab[unit]; 
 
 			// 1. check the src valid page...
-			if (src_blk->nr_invalid_subpages == np->nr_subpages_per_block) 
+			if ((src_blk != NULL) && (src_blk->nr_invalid_subpages == np->nr_subpages_per_block)) 
 			{
 				// src is already invalided.
 				req = &hlm_gc->llm_reqs[nr_punits*2 + unit];
@@ -888,6 +888,8 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 
 				bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->chip_no, src_blk->block_no, /*is bad*/ 0);
 
+				bdbm_msg ("gc finish :ch :%lld, way : %lld, blk : %lld\n",src_blk->channel_no, src_blk->chip_no, src_blk->block_no);
+
 				// adjust blck page offset.
 				p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
 			}
@@ -900,6 +902,11 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				{
 					p->gc_src_bab[unit] = src_blk;
 					p->gc_src_blk_offs[unit] = 0;
+
+					if (unit == 0)
+					{
+						bdbm_msg ("new src :ch :%lld, way : %lld, blk : %lld\n",src_blk->channel_no, src_blk->chip_no, src_blk->block_no);
+					}
 				}				
 			}
 			
@@ -1004,9 +1011,15 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				bdbm_error ("llm_make_req failed");
 				bdbm_bug_on (1);
 			}
+			
+			if (unit == 0)
+			{
+				bdbm_msg (" src : page :%lld, invalid : %lld, \n",p->gc_src_bab[unit]->nr_invalid_subpages, p->gc_src_blk_offs[unit]);
+			}
 		}
 	}
 
+	bdbm_msg ("gc_write, blk : %lld, page : %lld, copyback %lld\n", req->phyaddr.block_no, req->phyaddr.page_no, p->gc_src_bab[0]->copy_count);
 	return 0;
 }
 

@@ -51,7 +51,7 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 	//NR_BLOCKS_PER_CHIP = 8/BDBM_MAX_PAGES,
 	NR_CHIPS_PER_CHANNEL = 8,
 	//NR_CHIPS_PER_CHANNEL = 8,
-	NR_CHANNELS = 8,
+	NR_CHANNELS = 4,
 	NAND_HOST_BUS_TRANS_TIME_US = 0,	/* assume to be 0 */
 	NAND_CHIP_BUS_TRANS_TIME_US = 100,	/* 100us */
 	NAND_PAGE_PROG_TIME_US = 500,		/* 1.3ms */	
@@ -145,7 +145,7 @@ bdbm_device_params_t get_default_device_params (void)
 	p.gc_read_dma_time_us[5] = 70;
 	p.gc_read_dma_time_us[6] = 83;
 	p.gc_read_dma_time_us[7] = 96;
-	p.gc_read_dma_time_us[7] = 112;
+	p.gc_read_dma_time_us[8] = 112;
 
 	p.page_read_time_us = 50;	// tR 50us.
 

@@ -499,7 +499,8 @@ void hlm_reqs_pool_copy(
 	uint64_t subPage, unit;
 	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
 
-	bdbm_llm_req_t* dst_req, src_req;
+	bdbm_llm_req_t* dst_req;
+	bdbm_llm_req_t* src_req;
 
 	for (unit = 0; unit < nr_punits; unit++) 
 	{
