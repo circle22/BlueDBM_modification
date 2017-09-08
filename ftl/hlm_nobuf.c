@@ -123,10 +123,25 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 					hlm_reqs_pool_relocate_kp (lr, sp_ofs);
 				}
 			} else if (bdbm_is_write (lr->req_type)) {
+#ifndef DWHONG
 				if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
 					bdbm_error ("`ftl->get_free_ppa' failed");
 					goto fail;
 				}
+#else
+				uint64_t count = 0;
+
+				while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
+				{
+					ftl->do_gc(bdi, 0);
+					count++;
+
+					if ( (count % 1000) == 0)
+					{
+						bdbm_msg("OnDemand GC %lld\n", count);
+					}
+				}
+#endif
 				if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
 					bdbm_error ("`ftl->map_lpa_to_ppa' failed");
 					goto fail;
@@ -149,11 +164,26 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			}
 
 			/* getting the location to which data will be written */
+#ifndef DWHONG
 			if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0) {
 				bdbm_error ("`ftl->get_free_ppa' failed");
 				goto fail;
 			}
-			if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, phyaddr) != 0) {
+#else
+			uint64_t count = 0;
+
+			while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0)
+			{
+				ftl->do_gc(bdi, 0);
+				count++;
+
+				if ( (count % 1000) == 0)
+				{
+					bdbm_msg("OnDemand GC %lld\n", count);
+				}
+			}
+#endif
+		if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, phyaddr) != 0) {
 				bdbm_error ("`ftl->map_lpa_to_ppa' failed");
 				goto fail;
 			}

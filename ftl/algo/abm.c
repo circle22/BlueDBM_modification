@@ -556,6 +556,7 @@ void bdbm_abm_invalidate_page (
 		bdbm_bug_on (b->nr_invalid_subpages > bai->np->nr_subpages_per_block);
 	} else {
 		/* ignore if it was invalidated before */
+			bdbm_error ("already invalidated");
 	}
 }
 
