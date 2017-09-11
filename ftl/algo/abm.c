@@ -184,6 +184,8 @@ bdbm_abm_info_t* bdbm_abm_create (
 			INIT_LIST_HEAD (&bai->list_head_clean[loop][subloop]);
 			INIT_LIST_HEAD (&bai->list_head_dirty[loop][subloop]);
 			INIT_LIST_HEAD (&bai->list_head_bad[loop][subloop]);
+
+			bai->anr_free_blks[loop][subloop] = np->nr_blocks_per_chip;
 		}
 	}
 
@@ -200,7 +202,8 @@ bdbm_abm_info_t* bdbm_abm_create (
 	bai->nr_clean_blks = 0;
 	bai->nr_dirty_blks = 0;
 	bai->nr_bad_blks = 0;
-
+	bai->nr_gc_trigger_threshold = np->nr_channels * np->nr_chips_per_channel * 2;
+	
 	/* done */
 	return bai;
 
@@ -291,6 +294,9 @@ bdbm_abm_block_t* bdbm_abm_get_free_block_prepare (
 			/* change the number of blks */
 			bai->nr_free_blks--;
 			bai->nr_free_blks_prepared++;
+
+			bai->anr_free_blks[channel_no][chip_no]--;
+
 			break;
 		}
 		/* ignore if the status of a block is 'BDBM_ABM_BLK_FREE_PREPARE' */
@@ -318,6 +324,8 @@ void bdbm_abm_get_free_block_rollback (
 	/* change the number of blks */
 	bai->nr_free_blks_prepared--;
 	bai->nr_free_blks++;
+
+	bai->anr_free_blks[blk->channel_no][blk->chip_no]++;
 }
 
 void bdbm_abm_get_free_block_commit (
@@ -384,6 +392,7 @@ void bdbm_abm_erase_block (
 	} else if (blk->status == BDBM_ABM_BLK_FREE) {
 		bdbm_bug_on (bai->nr_free_blks == 0);
 		bai->nr_free_blks--;
+		bai->anr_free_blks[channel_no][chip_no]--;
 	} else if (blk->status == BDBM_ABM_BLK_FREE_PREPARE) {
 		bdbm_bug_on (bai->nr_free_blks_prepared == 0);
 		bai->nr_free_blks_prepared--;
@@ -415,6 +424,7 @@ void bdbm_abm_erase_block (
 		list_del (&blk->list);
 		list_add_tail (&blk->list, &(bai->list_head_free[blk->channel_no][blk->chip_no]));
 		bai->nr_free_blks++;
+		bai->anr_free_blks[channel_no][chip_no]++;
 		blk->status = BDBM_ABM_BLK_FREE;
 	}
 

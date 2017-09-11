@@ -95,6 +95,7 @@ uint32_t __hlm_nobuf_make_trim_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* ptr_hl
 	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
 	uint64_t i;
 
+	bdbm_msg("trim_req----------");
 	for (i = 0; i < ptr_hlm_req->len; i++) {
 		ftl->invalidate_lpa (bdi, ptr_hlm_req->lpa + i, 1);
 	}
@@ -133,15 +134,21 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 
 				while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
 				{
-					ftl->do_gc(bdi, 0);
+					
+					while(ftl->do_gc(bdi, 0) != 0)
+					{
+						// G.C Execution
+					}
+					
 					count++;
 
-					if ( (count % 1000) == 0)
+					if ( (count % 50000) == 0)
 					{
 						bdbm_msg("OnDemand GC %lld\n", count);
 					}
 				}
 #endif
+				
 				if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
 					bdbm_error ("`ftl->map_lpa_to_ppa' failed");
 					goto fail;
@@ -177,7 +184,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 				ftl->do_gc(bdi, 0);
 				count++;
 
-				if ( (count % 1000) == 0)
+				if ( (count % 20000) == 0)
 				{
 					bdbm_msg("OnDemand GC %lld\n", count);
 				}
@@ -231,6 +238,8 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 
 	if (dp->mapping_type == MAPPING_POLICY_PAGE) {
 		uint32_t loop;
+
+#ifndef DWHONG
 		/* see if foreground GC is needed or not */
 		for (loop = 0; loop < 10; loop++) {
 			if (hr->req_type == REQTYPE_WRITE && 
@@ -242,6 +251,22 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			} else
 				break;
 		}
+		asdfasdf
+#else
+		if (hr->req_type == REQTYPE_WRITE && 
+			ftl->is_gc_needed != NULL && ftl->is_gc_needed (bdi, 0)) 
+		{
+			uint32_t ret;	
+			bdbm_msg ("[hlm_nobuf_make_req] forground GC start");
+			do
+			{
+				ret = ftl->do_gc (bdi, 0);
+			}
+			while(ftl->is_gc_needed (bdi, 0) || (ret != 0));
+			
+			bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
+		}
+#endif
 	} else if (dp->mapping_type == MAPPING_POLICY_RSD ||
 			   dp->mapping_type == MAPPING_POLICY_BLOCK) {
 		/* perform mapping with the FTL */
