@@ -130,22 +130,19 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 					goto fail;
 				}
 #else
-				uint64_t count = 0;
 
-				while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
+				if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
 				{
-					
-					while(ftl->do_gc(bdi, 0) != 0)
-					{
-						// G.C Execution
-					}
-					
-					count++;
+				//	bdbm_msg("OnDemand GC \n");
 
-					if ( (count % 50000) == 0)
+					do 
 					{
-						bdbm_msg("OnDemand GC %lld\n", count);
+						while(ftl->do_gc(bdi, 1) != 0)
+						{
+							// G.C Execution
+						}
 					}
+					while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0);
 				}
 #endif
 				
@@ -177,17 +174,18 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 				goto fail;
 			}
 #else
-			uint64_t count = 0;
-
-			while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0)
+			if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0)
 			{
-				ftl->do_gc(bdi, 0);
-				count++;
+				bdbm_msg("OnDemand GC -RMW");
 
-				if ( (count % 20000) == 0)
+				do 
 				{
-					bdbm_msg("OnDemand GC %lld\n", count);
+					while(ftl->do_gc(bdi, 0) != 0)
+					{
+						// G.C Execution
+					}
 				}
+				while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0);
 			}
 #endif
 		if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, phyaddr) != 0) {

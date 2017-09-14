@@ -132,6 +132,7 @@ bdbm_abm_info_t* bdbm_abm_create (
 	for (loop = 0; loop < np->nr_blocks_per_ssd; loop++) {
 		bai->blocks[loop].status = BDBM_ABM_BLK_FREE;
 		bai->blocks[loop].copy_count = 0;
+		bai->blocks[loop].info = 0;
 		bai->blocks[loop].update_time = 0;
 		bai->blocks[loop].channel_no = __get_channel_ofs (np, loop);
 		bai->blocks[loop].chip_no = __get_chip_ofs (np, loop);

@@ -105,6 +105,10 @@ typedef struct {
 
 	/* for bad-block scanning */
 	bdbm_sema_t badblk;
+
+	// infomative data.	
+	uint64_t valid_page_count[8][8];
+
 } bdbm_page_ftl_private_t;
 
 
@@ -168,9 +172,11 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 			if ((*bab = bdbm_abm_get_free_block_prepare (bai, i, j))) {
 				bdbm_abm_get_free_block_commit (bai, *bab);
 				/*bdbm_msg ("active blk = %p", *bab);*/
-				if ( i==0 && j==0)
+				
+				(*bab)->info = 10;// active	
+				//if ( i==0 && j==0)
 				{
-					bdbm_msg("Active %lld,%lld,%lld", (*bab)->channel_no, (*bab)->chip_no, (*bab)->block_no);
+				//	bdbm_msg("A: %lld,%lld,%lld", (*bab)->channel_no, (*bab)->chip_no, (*bab)->block_no);
 				}
 				bab++;
 			} else {
@@ -326,6 +332,13 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	bdbm_sema_init (&p->gc_hlm_w.done);
 	hlm_reqs_pool_allocate_llm_reqs (p->gc_hlm_w.llm_reqs, p->nr_punits_pages, RP_MEM_PHY);
 
+	for (i = 0; i < np->nr_channels; i++)
+	{
+		for (j =  0; j < np->nr_chips_per_channel; j++)
+		{
+			p->valid_page_count[i][j] = 0;
+		}
+	}
 	return 0;
 }
 
@@ -356,6 +369,81 @@ void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi)
 	bdbm_free (p);
 }
 
+
+void bdbm_page_ftl_print_blocks(bdbm_drv_info_t* bdi)
+{
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	uint64_t ch, way, unit;
+
+	bdbm_msg("Allocated Blocks");
+	for (ch = 0; ch < np->nr_channels;	ch++)
+	{
+		for (way = 0; way < np->nr_chips_per_channel; way++)
+		{	
+			unit = ch * np->nr_chips_per_channel + way;
+
+			bdbm_msg("ch:%lld, way:%lld, %lld,%lld,%lld,%lld",ch, way,
+				(p->ac_bab[unit])->block_no,
+				(p->gc_src_bab[unit])->block_no,
+				(p->gc_dst_bab[0][unit])->block_no, unit);
+				//(p->gc_dst_bab[1][ch*np->nr_chips_per_channel + way])->block_no,
+				//(p->gc_dst_bab[2][ch*np->nr_chips_per_channel + way])->block_no);
+		}
+	}
+}
+void bdbm_page_ftl_print_freeblocks(bdbm_drv_info_t* bdi)
+{
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
+	uint64_t ch;
+
+	bdbm_msg("FreeBlock");
+	for (ch = 0; ch < np->nr_channels;	ch++)
+	{				
+		bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
+				p->bai->anr_free_blks[ch][0], 
+				p->bai->anr_free_blks[ch][1], 
+				p->bai->anr_free_blks[ch][2], 
+				p->bai->anr_free_blks[ch][3], 
+				p->bai->anr_free_blks[ch][4], 
+				p->bai->anr_free_blks[ch][5], 
+				p->bai->anr_free_blks[ch][6], 
+				p->bai->anr_free_blks[ch][7]);
+	}
+}
+
+void bdbm_page_ftl_print_validpage_count(bdbm_drv_info_t* bdi)
+{
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	uint64_t ch;
+
+#if 0
+	bdbm_msg("valid page count");
+	for (ch = 0; ch < np->nr_channels;  ch++)
+	{
+		bdbm_msg("ch:%lld: %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",ch,		
+			p->valid_page_count[ch][0], p->valid_page_count[ch][1], p->valid_page_count[ch][2],p->valid_page_count[ch][3], p->valid_page_count[ch][4], p->valid_page_count[ch][5], p->valid_page_count[ch][6], p->valid_page_count[ch][7]);
+	}
+#else
+
+//		bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",		
+		//bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",		
+		bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,",		
+			p->valid_page_count[0][0], p->valid_page_count[0][1], p->valid_page_count[0][2],p->valid_page_count[0][3], p->valid_page_count[0][4], p->valid_page_count[0][5], p->valid_page_count[0][6], p->valid_page_count[0][7],
+			p->valid_page_count[1][0], p->valid_page_count[1][1], p->valid_page_count[1][2],p->valid_page_count[1][3], p->valid_page_count[1][4], p->valid_page_count[1][5], p->valid_page_count[1][6], p->valid_page_count[1][7]);
+//			p->valid_page_count[2][0], p->valid_page_count[2][1], p->valid_page_count[2][2],p->valid_page_count[2][3], p->valid_page_count[2][4], p->valid_page_count[2][5], p->valid_page_count[2][6], p->valid_page_count[2][7],
+//			p->valid_page_count[3][0], p->valid_page_count[3][1], p->valid_page_count[3][2],p->valid_page_count[3][3], p->valid_page_count[3][4], p->valid_page_count[3][5], p->valid_page_count[3][6], p->valid_page_count[3][7]);
+//			p->valid_page_count[4][0], p->valid_page_count[4][1], p->valid_page_count[4][2],p->valid_page_count[4][3], p->valid_page_count[4][4], p->valid_page_count[4][5], p->valid_page_count[4][6], p->valid_page_count[4][7],
+//			p->valid_page_count[5][0], p->valid_page_count[5][1], p->valid_page_count[5][2],p->valid_page_count[5][3], p->valid_page_count[5][4], p->valid_page_count[5][5], p->valid_page_count[5][6], p->valid_page_count[5][7],
+//			p->valid_page_count[6][0], p->valid_page_count[6][1], p->valid_page_count[6][2],p->valid_page_count[6][3], p->valid_page_count[6][4], p->valid_page_count[6][5], p->valid_page_count[6][6], p->valid_page_count[6][7],
+//			p->valid_page_count[7][0], p->valid_page_count[7][1], p->valid_page_count[7][2],p->valid_page_count[7][3], p->valid_page_count[7][4], p->valid_page_count[7][5], p->valid_page_count[7][6], p->valid_page_count[7][7]);
+#endif
+
+}
+	
 uint32_t bdbm_page_ftl_get_free_ppa (
 	bdbm_drv_info_t* bdi, 
 	int64_t lpa,
@@ -402,6 +490,8 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			/* ok; go ahead with 0 offset */
 			/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
 			p->curr_page_ofs = 0;
+
+			bdbm_page_ftl_print_validpage_count(bdi);
 		}
 	} else {
 		/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
@@ -429,13 +519,13 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 		//	return 1;
 		//}
 
-		if ((p->gc_dst_bab[copy_count][unit] = bdbm_abm_get_free_block_prepare (p->bai, unit%np->nr_channels, unit/np->nr_channels)))
+		if ((p->gc_dst_bab[copy_count][unit] = bdbm_abm_get_free_block_prepare (p->bai, unit/np->nr_chips_per_channel, unit%np->nr_chips_per_channel)))
 		{
 			bdbm_abm_get_free_block_commit (p->bai, p->gc_dst_bab[copy_count][unit]);
-			
-			if (unit == 0)
+			p->gc_dst_bab[copy_count][unit]->info = 11; //dest.
+			//if (unit == 0)
 			{
-				bdbm_msg("Dst %lld,%lld,%lld", p->gc_dst_bab[copy_count][unit]->channel_no, p->gc_dst_bab[copy_count][unit]->chip_no, p->gc_dst_bab[copy_count][unit]->block_no);
+			//	bdbm_msg("D:%lld,%lld,%lld,%lld", p->gc_dst_bab[copy_count][unit]->channel_no, p->gc_dst_bab[copy_count][unit]->chip_no, p->gc_dst_bab[copy_count][unit]->block_no, unit);
 			}
 		}
 		else 
@@ -485,6 +575,8 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 				phyaddr->page_no,
 				k
 			);
+
+			p->valid_page_count[phyaddr->channel_no][phyaddr->chip_no]--;
 			continue;
 		}
 
@@ -509,6 +601,8 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 				me->phyaddr.page_no,
 				me->sp_off
 			);
+			
+			p->valid_page_count[me->phyaddr.channel_no][me->phyaddr.chip_no]--;
 		}
 		me->status = PFTL_PAGE_VALID;
 		me->phyaddr.channel_no = phyaddr->channel_no;
@@ -516,6 +610,8 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		me->phyaddr.block_no = phyaddr->block_no;
 		me->phyaddr.page_no = phyaddr->page_no;
 		me->sp_off = k;
+
+		p->valid_page_count[phyaddr->channel_no][phyaddr->chip_no]++;
 	}
 
 	return 0;
@@ -663,8 +759,10 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_abm_block_t* d = NULL;
 	struct list_head* pos = NULL;
 
-	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
-	d = p->gc_dst_bab[channel_no*np->nr_chips_per_channel + chip_no];
+	uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
+
+	a = p->ac_bab[unit];
+	d = p->gc_dst_bab[0][unit];
 
 	bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) {
 		b = bdbm_abm_fetch_dirty_block (pos);
@@ -702,7 +800,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi)
 
 	nr_punits = np->nr_channels * np->nr_chips_per_channel;
 
-	/* choose victim blocks for individual parallel units */
+	/* choose uvictim blocks for individual parallel units */
 	bdbm_memset (p->gc_bab, 0x00, sizeof (bdbm_abm_block_t*) * nr_punits);
 	bdbm_stopwatch_start (&sw);
 	for (i = 0, nr_gc_blks = 0; i < np->nr_channels; i++) {
@@ -942,15 +1040,22 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 
 					// adjust blck page offset.
 					p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
+					
+
+					if (lpa != 0)
+					{
+				//		bdbm_page_ftl_print_freeblocks(bdi);
+					}	
 				}
 
 				// 2. Check the Src Block
 				if (p->gc_src_blk_offs[unit] == np->nr_pages_per_block)
 				{
 					// choose victim blocks - new src block
-					if (src_blk != NULL)
+					if ((src_blk != NULL) && (src_blk->nr_invalid_subpages != 0))
 					{
-						bdbm_bug_on(src->blk->nr_invalid_subpages != 0);
+						bdbm_msg("ch :%lld, way : %lld, blk :%lld, i:%d, %d",ch, way, src_blk->block_no, src_blk->nr_invalid_subpages, src_blk->info);
+						bdbm_bug_on(1);
 					}
 
 					if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
@@ -964,7 +1069,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				
 						//if (unit == 0)
 						{
-							bdbm_msg ("src: %lld,%lld,%lld,invalid: %lld",src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->nr_invalid_subpages);
+						//	bdbm_msg ("S:%lld,%lld,%lld,i: %d",src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->nr_invalid_subpages);
 						}
 					}				
 				}
@@ -1064,9 +1169,10 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 						else
 						{
 							bdbm_msg (" Host Update during G.C");
-							bdbm_msg (" lpa : %lld, org ch: %lld, way:%lld, blk : %lld", req->logaddr.lpa[subPage], p->gc_src_bab[unit]->channel_no, p->gc_src_bab[unit]->chip_no, p->gc_src_bab[unit]->block_no);
-							bdbm_msg ("			    new ch: %lld, way:%lld, blk : %lld, page: %lld", phyaddr.channel_no, phyaddr.chip_no, phyaddr.block_no, phyaddr.page_no);
-							
+							bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], p->gc_src_bab[unit]->channel_no, p->gc_src_bab[unit]->chip_no, p->gc_src_bab[unit]->block_no,p->gc_src_bab[unit]->info);
+							bdbm_msg ("			    new ch: %lld,%lld,%lld, page: %lld", phyaddr.channel_no, phyaddr.chip_no, phyaddr.block_no, phyaddr.page_no);
+
+							bdbm_page_ftl_print_blocks(bdi);
 						}
 					} else if (req->fmain.kp_stt[subPage] == KP_STT_HOLE) {
 						((uint64_t*)req->foob.data)[subPage] = -1;
@@ -1079,7 +1185,13 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				}
 				
 				if (write_bypass == 1)
-				{	
+				{
+					if ( p->gc_src_bab[unit]->nr_invalid_subpages != np->nr_pages_per_block)
+					{
+						bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld",ch, way, p->gc_src_bab[unit]->block_no, p->gc_src_bab[unit]->nr_invalid_subpages, p->gc_src_bab[unit]->channel_no,p->gc_src_bab[unit]->chip_no);
+						bdbm_bug_on (1);
+					}	
+
 					continue; // No thing to write - Src must be clean.
 				}
 
