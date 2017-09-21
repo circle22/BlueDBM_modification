@@ -29,6 +29,7 @@ THE SOFTWARE.
 //#define COPYBACK_SUPPORT
 //#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(3)
+#define VALID_BALANCE	
 
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */

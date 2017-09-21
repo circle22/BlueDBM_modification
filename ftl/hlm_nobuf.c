@@ -255,14 +255,14 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			ftl->is_gc_needed != NULL && ftl->is_gc_needed (bdi, 0)) 
 		{
 			uint32_t ret;	
-			bdbm_msg ("[hlm_nobuf_make_req] forground GC start");
+			//bdbm_msg ("[hlm_nobuf_make_req] forground GC start");
 			do
 			{
 				ret = ftl->do_gc (bdi, 0);
 			}
 			while(ftl->is_gc_needed (bdi, 0) || (ret != 0));
 			
-			bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
+		//	bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
 		}
 #endif
 	} else if (dp->mapping_type == MAPPING_POLICY_RSD ||
@@ -348,7 +348,7 @@ void __hlm_nobuf_end_gcio_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	bdbm_hlm_req_gc_t* hr_gc = (bdbm_hlm_req_gc_t* )lr->ptr_hlm_req;
 
 	atomic64_inc (&hr_gc->nr_llm_reqs_done);
-//	lr->req_type |= REQTYPE_DONE;
+	lr->req_type |= REQTYPE_DONE;
 
 /*	will not use semaphore.
 	if (atomic64_read (&hr_gc->nr_llm_reqs_done) == hr_gc->nr_llm_reqs) {
