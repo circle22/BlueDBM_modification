@@ -108,12 +108,17 @@ typedef struct {
 
 	// infomative data.	
 	uint64_t valid_page_count[8][8];
-	uint64_t validpage_balancing;
-	uint64_t max_plane;
-	uint64_t target_plane;
-	uint64_t substituted;
-	uint64_t average_valid_count;
+	uint64_t host_write_count[64];
+	uint64_t total_write_count[64];
+	uint64_t invald_page_count[64];
 
+	uint64_t validpage_balancing;
+	uint64_t substituted;
+	uint64_t adjust_count;
+	uint64_t max_plane[ADJUST_FACTOR];
+	uint64_t target_plane[ADJUST_FACTOR];
+	
+	uint64_t average_valid_count;
 	uint64_t cumulative_adjust_count;
 	uint64_t gc_copy_count;
 	uint64_t nop_count;
@@ -321,6 +326,11 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		{
 			p->gc_dst_blk_offs[j][i] = np->nr_pages_per_block;	
 		}
+
+		p->host_write_count[i] = 0;
+
+		p->total_write_count[i] = 0;
+		p->invald_page_count[i] = 1; // prevent dividing by zero
 	}
 	
 	if ((p->gc_hlm.llm_reqs = (bdbm_llm_req_t*)bdbm_zmalloc
@@ -348,14 +358,21 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 			p->valid_page_count[i][j] = 0;
 		}
 	}
-	
+
+
 	p->validpage_balancing = 0;
-	p->max_plane = 0;
-	p->target_plane = 0;
 	p->substituted = 0;
-	p->nop_count = 0;
+	p->adjust_count = 0;
+	for (i = 0; i < ADJUST_FACTOR; i++)
+	{
+		p->max_plane[i] = 0;
+		p->target_plane[i] = 0;
+	}
+
+	p->average_valid_count= 0;
 	p->cumulative_adjust_count = 0;
 	p->gc_copy_count = 0;
+	p->nop_count = 0;
 
 	return 0;
 }
@@ -387,6 +404,27 @@ void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi)
 	bdbm_free (p);
 }
 
+uint32_t is_target_unit(uint64_t target_unit, uint64_t* src_unit, uint64_t* adj_index)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
+	uint64_t idx;
+	uint32_t ret = 0;
+
+	for (idx = 0; idx < ADJUST_FACTOR; idx++)
+	{
+		if ((target_unit == p->target_plane[idx]) && (p->validpage_balancing & (0x01 << idx)))
+		{
+			*src_unit = p->max_plane[idx];
+			*adj_index = idx;
+
+			ret = 1;
+			break;
+		}
+	}
+
+	return ret;
+}
 
 void bdbm_page_ftl_balancing_finish_check(bdbm_drv_info_t* bdi)
 {
@@ -394,24 +432,31 @@ void bdbm_page_ftl_balancing_finish_check(bdbm_drv_info_t* bdi)
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	uint64_t max_ch, max_way;
 	uint64_t min_ch, min_way;
+	uint64_t idx;
 
-	if (p->validpage_balancing != 0)
+	for (idx = 0; idx < ADJUST_FACTOR; idx++)
 	{
-		// max is  
-		max_ch = p->max_plane / np->nr_chips_per_channel;
-		max_way = p->max_plane % np->nr_chips_per_channel; 
-
-		min_ch = p->target_plane / np->nr_chips_per_channel;
-		min_way = p->target_plane % np->nr_chips_per_channel; 
-
-		if ((p->valid_page_count[max_ch][max_way] <= p->average_valid_count) ||
-			(p->valid_page_count[min_ch][min_way] >= p->average_valid_count) ||
-			(p->bai->anr_free_blks[min_ch][min_way] < 2))
+		uint64_t cur_bit = 0x01 << idx;
+		
+		if (p->validpage_balancing & cur_bit)
 		{
-			p->validpage_balancing = 0;
-			p->substituted = 0;
-			
-			bdbm_msg("Finish: max: %lld, target: %lld, ad cnt: %lld, cp cnt:%lld", p->max_plane, p->target_plane, p->cumulative_adjust_count, p->gc_copy_count);
+			// max is  
+			max_ch = p->max_plane[idx] / np->nr_chips_per_channel;
+			max_way = p->max_plane[idx] % np->nr_chips_per_channel; 
+
+			min_ch = p->target_plane[idx] / np->nr_chips_per_channel;
+			min_way = p->target_plane[idx] % np->nr_chips_per_channel; 
+
+			if ((p->valid_page_count[max_ch][max_way] <= p->average_valid_count) ||
+				(p->valid_page_count[min_ch][min_way] >= p->average_valid_count) ||
+				(p->bai->anr_free_blks[min_ch][min_way] < 2))
+			{
+				// reset and will start later with others.
+				p->validpage_balancing = 0;
+				p->substituted = 0;
+				p->adjust_count = 0;
+				break;
+			}
 		}
 	}
 }
@@ -422,62 +467,122 @@ void bdbm_page_ftl_balancing_start_check(bdbm_drv_info_t* bdi)
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 
-	uint64_t total_valid_page = 0;
-	uint64_t max_valid_page = 0;
-	uint64_t upper_threshold;
 	uint64_t ch, way, unit, unit_count;
+	uint64_t idx;
 
-	if (p->validpage_balancing == 0)
+	uint64_t max_unit[ADJUST_FACTOR] ={0,};
+	uint64_t min_unit[ADJUST_FACTOR] ={0,};
+	uint64_t max_valid_page = 0;
+	uint64_t min_valid_page = 0xffffffffff;
+	uint64_t upper_threshold;
+	uint64_t total_valid_page = 0;
+	uint64_t adjust_count = 0;
+	uint64_t target_find = 0;
+
+	unit_count = np->nr_channels * np->nr_chips_per_channel;
+
+	// 1. check the trigger condition.
+	for (unit = 0; unit < unit_count; unit++)
 	{
-		unit_count = np->nr_channels * np->nr_chips_per_channel;
-		p->substituted = 0;
+		ch = unit / np->nr_chips_per_channel;
+		way = unit % np->nr_chips_per_channel; 
+	
+		total_valid_page += p->valid_page_count[ch][way];
+	
+		if (p->valid_page_count[ch][way] > max_valid_page)
+		{
+			max_valid_page = p->valid_page_count[ch][way];
+	
+			// update ch/way
+			max_unit[0] = unit;
+		}
 
-		// check the max plane.
+		if ((p->valid_page_count[ch][way] < min_valid_page) && (p->bai->anr_free_blks[ch][way] >= 2))
+		{
+			target_find = 1;
+
+			min_unit[0] = unit;
+			min_valid_page = p->valid_page_count[ch][way]; 
+		}
+	}
+	
+	p->average_valid_count = total_valid_page / unit_count;
+	upper_threshold = (float)p->average_valid_count * 1.0010;
+
+	if ((max_valid_page < upper_threshold) || (target_find == 0))
+	{
+		// doesn't need to adjust
+		return;
+	}
+
+	// 2. calculate adjust count;
+	adjust_count = 1;
+	
+	for (unit = 0; unit < unit_count; unit++)
+	{
+		ch = unit / np->nr_chips_per_channel;
+		way = unit % np->nr_chips_per_channel; 
+
+		if (p->valid_page_count[ch][way] > upper_threshold)
+		{
+			if (unit != max_unit[0])
+			{
+				max_unit[adjust_count] = unit;
+				adjust_count++;
+
+				//temp.
+				if (adjust_count == ADJUST_FACTOR)
+				{
+					break;
+				}
+			}
+		}
+	}
+
+	// 3. deside the target unit.
+	for (idx = 1; idx < adjust_count; idx++)
+	{
+		uint64_t next_min_valid = p->average_valid_count;	
+		
+		target_find = 0;
+
 		for (unit = 0; unit < unit_count; unit++)
 		{
 			ch = unit / np->nr_chips_per_channel;
 			way = unit % np->nr_chips_per_channel; 
 
-			total_valid_page += p->valid_page_count[ch][way];
-
-			if (p->valid_page_count[ch][way] > max_valid_page)
+			if ((p->valid_page_count[ch][way] < next_min_valid) && (p->bai->anr_free_blks[ch][way] >= 2))
 			{
-				max_valid_page = p->valid_page_count[ch][way];
+				// excluding chosen unit.
+				if (p->valid_page_count[ch][way] > min_valid_page)
+				{					
+					next_min_valid = p->valid_page_count[ch][way]; 
 
-				// update ch/way
-				p->max_plane = unit;
-			}		
-		}
+					min_unit[idx] = unit;
 
-		p->average_valid_count = total_valid_page / unit_count;
-		upper_threshold = (float)p->average_valid_count * 1.0010;
-		
-		if (max_valid_page >= upper_threshold)
-		{
-			uint64_t target_find = 0;
-			uint64_t min_valid = 0xffffffffff;
-
-			for (unit = 0; unit < unit_count; unit++)
-			{
-				ch = unit / np->nr_chips_per_channel;
-				way = unit % np->nr_chips_per_channel; 
-
-				if ((p->valid_page_count[ch][way] < min_valid) && (p->bai->anr_free_blks[ch][way] >= 2))
-				{
-					min_valid = p->valid_page_count[ch][way]; 
 					target_find = 1;
-
-					p->target_plane = unit;
 				}
 			}
-
-			if (target_find)
-			{
-				p->validpage_balancing = 1; // from max plane to target_plane.
-
-				bdbm_msg("start: max: %lld, target: %lld, ad cnt: %lld, cp cnt:%lld", p->max_plane, p->target_plane, p->cumulative_adjust_count, p->gc_copy_count);
-			}
 		}
+
+		if (target_find == 0)
+		{
+			adjust_count = idx;
+			break;
+		}
+
+		min_valid_page = next_min_valid;
+	}
+
+	// 4. update.
+	p->validpage_balancing = 0;
+	p->substituted = 0;
+	p->adjust_count = adjust_count;
+	for (idx = 0; idx < adjust_count; idx++)
+	{
+		p->max_plane[idx] = max_unit[idx];
+		p->target_plane[idx] = min_unit[idx];
+		p->validpage_balancing |= (0x1 << idx);
 	}
 }
 
@@ -595,8 +700,7 @@ void bdbm_page_ftl_print_totalEC(bdbm_drv_info_t* bdi)
 		}
 	}		
 
-//		bdbm_msg("EC, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld", // 32.
-		bdbm_msg("EC, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,  %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
+	bdbm_msg("EC, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,  %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
 		erase_count[0],erase_count[1],erase_count[2],erase_count[3],erase_count[4],erase_count[5],erase_count[6],erase_count[7],
 		erase_count[8],erase_count[9],erase_count[10],erase_count[11],erase_count[12],erase_count[13],erase_count[14],erase_count[15],
 		erase_count[16],erase_count[17],erase_count[18],erase_count[19],erase_count[20],erase_count[21],erase_count[22],erase_count[23],
@@ -604,10 +708,52 @@ void bdbm_page_ftl_print_totalEC(bdbm_drv_info_t* bdi)
 		erase_count[32],erase_count[33],erase_count[34],erase_count[35],erase_count[36],erase_count[37],erase_count[38],erase_count[39],
 		erase_count[40],erase_count[41],erase_count[42],erase_count[43],erase_count[44],erase_count[45],erase_count[46],erase_count[47],
 		erase_count[48],erase_count[49],erase_count[50],erase_count[51],erase_count[52],erase_count[53],erase_count[54],erase_count[55],
-		erase_count[56],erase_count[57],erase_count[58],erase_count[59],erase_count[60],erase_count[61],erase_count[62],erase_count[63]);					
+		erase_count[56],erase_count[57],erase_count[58],erase_count[59],erase_count[60],erase_count[61],erase_count[62],erase_count[63]);
 }
 
-	
+void bdbm_page_ftl_print_hostWrite(void)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
+	if (p->nr_punits == 64)
+	{
+		bdbm_msg("hostW, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,  %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,   %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,  %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld", 
+			p->host_write_count[0],p->host_write_count[1],p->host_write_count[2],p->host_write_count[3],p->host_write_count[4],p->host_write_count[5],p->host_write_count[6],p->host_write_count[7], 
+			p->host_write_count[8],p->host_write_count[9],p->host_write_count[10],p->host_write_count[11],p->host_write_count[12],p->host_write_count[13],p->host_write_count[14],p->host_write_count[15], 
+			p->host_write_count[16],p->host_write_count[17],p->host_write_count[18],p->host_write_count[19],p->host_write_count[20],p->host_write_count[21],p->host_write_count[22],p->host_write_count[23], 
+			p->host_write_count[24],p->host_write_count[25],p->host_write_count[26],p->host_write_count[27],p->host_write_count[28],p->host_write_count[29],p->host_write_count[30],p->host_write_count[31], 
+			p->host_write_count[32],p->host_write_count[33],p->host_write_count[34],p->host_write_count[35],p->host_write_count[36],p->host_write_count[37],p->host_write_count[38],p->host_write_count[39], 
+			p->host_write_count[40],p->host_write_count[41],p->host_write_count[42],p->host_write_count[43],p->host_write_count[44],p->host_write_count[45],p->host_write_count[46],p->host_write_count[47], 
+			p->host_write_count[48],p->host_write_count[49],p->host_write_count[50],p->host_write_count[51],p->host_write_count[52],p->host_write_count[53],p->host_write_count[54],p->host_write_count[55], 
+			p->host_write_count[56],p->host_write_count[57],p->host_write_count[58],p->host_write_count[59],p->host_write_count[60],p->host_write_count[61],p->host_write_count[62],p->host_write_count[63]);
+	}
+	else if (p->nr_punits == 32)
+	{
+		bdbm_msg("hostW, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,  %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",  
+			p->host_write_count[0],p->host_write_count[1],p->host_write_count[2],p->host_write_count[3],p->host_write_count[4],p->host_write_count[5],p->host_write_count[6],p->host_write_count[7], 
+			p->host_write_count[8],p->host_write_count[9],p->host_write_count[10],p->host_write_count[11],p->host_write_count[12],p->host_write_count[13],p->host_write_count[14],p->host_write_count[15], 
+			p->host_write_count[16],p->host_write_count[17],p->host_write_count[18],p->host_write_count[19],p->host_write_count[20],p->host_write_count[21],p->host_write_count[22],p->host_write_count[23], 
+			p->host_write_count[24],p->host_write_count[25],p->host_write_count[26],p->host_write_count[27],p->host_write_count[28],p->host_write_count[29],p->host_write_count[30],p->host_write_count[31]);
+	}						
+	else
+	{
+		bdbm_msg("hostW, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
+			p->host_write_count[0],p->host_write_count[1],p->host_write_count[2],p->host_write_count[3],p->host_write_count[4],p->host_write_count[5],p->host_write_count[6],p->host_write_count[7], 
+			p->host_write_count[8],p->host_write_count[9],p->host_write_count[10],p->host_write_count[11],p->host_write_count[12],p->host_write_count[13],p->host_write_count[14],p->host_write_count[15]); 
+	}
+}
+
+void bdbm_page_ftl_print_WAF(void)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
+	bdbm_msg("WAF %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld, %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld", 
+	(p->total_write_count[0])*100/p->invald_page_count[0], (p->total_write_count[1])*100/p->invald_page_count[1],(p->total_write_count[2])*100/p->invald_page_count[2],(p->total_write_count[3])*100/p->invald_page_count[3],p->total_write_count[4]*100/p->invald_page_count[4],p->total_write_count[5]*100/p->invald_page_count[5],p->total_write_count[6]*100/p->invald_page_count[6],
+		p->total_write_count[7]*100/p->invald_page_count[7], p->total_write_count[8]*100/p->invald_page_count[8],p->total_write_count[9]*100/p->invald_page_count[9],p->total_write_count[10]*100/p->invald_page_count[10],p->total_write_count[11]*100/p->invald_page_count[11],p->total_write_count[12]*100/p->invald_page_count[12],p->total_write_count[13]*100/p->invald_page_count[13],p->total_write_count[14]*100/p->invald_page_count[14],p->total_write_count[15]*100/p->invald_page_count[15], p->total_write_count[16]*100/p->invald_page_count[16],p->total_write_count[17]*100/p->invald_page_count[17],p->total_write_count[18]*100/p->invald_page_count[18],p->total_write_count[19]*100/p->invald_page_count[19],p->total_write_count[20]*100/p->invald_page_count[20],p->total_write_count[21]*100/p->invald_page_count[21],p->total_write_count[22]*100/p->invald_page_count[22],p->total_write_count[23]*100/p->invald_page_count[23],p->total_write_count[24]*100/p->invald_page_count[24],p->total_write_count[25]*100/p->invald_page_count[25],p->total_write_count[26]*100/p->invald_page_count[26], p->total_write_count[27]*100/p->invald_page_count[27],		p->total_write_count[28]*100/p->invald_page_count[28],		p->total_write_count[29]*100/p->invald_page_count[29],		p->total_write_count[30]*100/p->invald_page_count[30],		p->total_write_count[31]*100/p->invald_page_count[31],		p->total_write_count[32]*100/p->invald_page_count[32],		p->total_write_count[33]*100/p->invald_page_count[33],		p->total_write_count[34]*100/p->invald_page_count[34],		p->total_write_count[35]*100/p->invald_page_count[35],		p->total_write_count[36]*100/p->invald_page_count[36],		p->total_write_count[37]*100/p->invald_page_count[37],		p->total_write_count[38]*100/p->invald_page_count[38],		p->total_write_count[39]*100/p->invald_page_count[39],		p->total_write_count[40]*100/p->invald_page_count[40],		p->total_write_count[41]*100/p->invald_page_count[41],		p->total_write_count[42]*100/p->invald_page_count[42],		p->total_write_count[43]*100/p->invald_page_count[43],		p->total_write_count[44]*100/p->invald_page_count[44],		p->total_write_count[45]*100/p->invald_page_count[45],		p->total_write_count[46]*100/p->invald_page_count[46],		p->total_write_count[47]*100/p->invald_page_count[47],		p->total_write_count[48]*100/p->invald_page_count[48],		p->total_write_count[49]*100/p->invald_page_count[49],		p->total_write_count[50]*100/p->invald_page_count[50],		p->total_write_count[51]*100/p->invald_page_count[51],		p->total_write_count[52]*100/p->invald_page_count[52],		p->total_write_count[53]*100/p->invald_page_count[53],		p->total_write_count[54]*100/p->invald_page_count[54],		p->total_write_count[55]*100/p->invald_page_count[55],		p->total_write_count[56]*100/p->invald_page_count[56],		p->total_write_count[57]*100/p->invald_page_count[57],		p->total_write_count[58]*100/p->invald_page_count[58],p->total_write_count[59]*100/p->invald_page_count[59],		p->total_write_count[60]*100/p->invald_page_count[60],p->total_write_count[61]*100/p->invald_page_count[61],p->total_write_count[62]*100/p->invald_page_count[62],p->total_write_count[63]*100/p->invald_page_count[63]);
+
+}
+
+
 uint32_t bdbm_page_ftl_get_free_ppa (
 	bdbm_drv_info_t* bdi, 
 	int64_t lpa,
@@ -656,12 +802,21 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			p->curr_page_ofs = 0;
 
 			bdbm_page_ftl_print_validpage_count(bdi);
+			
+			//bdbm_msg("max: %lld, target: %lld, ad cnt: %lld, cp cnt:%lld", p->max_plane, p->target_plane, p->cumulative_adjust_count, p->gc_copy_count);
+			bdbm_msg("max: %lld,%lld,%lld,%lld,, target: %lld,%lld,%lld,%lld, index: %lld, ad cnt: %lld, cp cnt:%lld", p->max_plane[0], p->max_plane[1], p->max_plane[2], p->max_plane[3], p->target_plane[0],p->target_plane[1], p->target_plane[2],p->target_plane[3], p->adjust_count, p->cumulative_adjust_count, p->gc_copy_count);
+
+			//bdbm_page_ftl_print_hostWrite();
+
+			bdbm_page_ftl_print_WAF();
 		//	bdbm_page_ftl_print_totalEC(bdi);
 		}
 	} else {
 		/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
 		p->curr_puid++;
 	}
+
+	p->host_write_count[lpa % p->nr_punits]++;
 
 	return 0;
 }
@@ -1168,8 +1323,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 	if (state == 0)
 	{
 
-#ifndef VALID_BALANCE		
-	asdfas
+#ifdef VALID_BALANCE		
 		if (p->validpage_balancing == 0)
 		{
 			bdbm_page_ftl_balancing_start_check(bdi);
@@ -1184,14 +1338,16 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 		for (unit = 0; unit < nr_punits; unit++)
 		{
 			uint64_t cur_unit = unit;			
+			uint64_t src_unit;
+			uint64_t adj_index;
 
-			if ((p->validpage_balancing != 0) && (p->target_plane == unit))
+			if ((p->validpage_balancing != 0) && is_target_unit(unit, &src_unit, &adj_index))
 			{
 				// if src block is not available then uses original src blk
-				if ((p->gc_src_bab[p->max_plane] != NULL ) && (p->gc_src_bab[p->max_plane]->nr_invalid_subpages < (np->nr_subpages_per_block - 2)))
+				if ((p->gc_src_bab[src_unit] != NULL ) && (p->gc_src_bab[src_unit]->nr_invalid_subpages < (np->nr_subpages_per_block - 2)))
 				{
-					cur_unit = p->max_plane;
-					p->substituted = 1;
+					cur_unit = src_unit;
+					p->substituted |= 0x01 << adj_index;
 					p->cumulative_adjust_count++;
 				}
 			}
@@ -1228,8 +1384,14 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 
 				// adjust blck page offset.
 				p->gc_src_blk_offs[cur_unit] = np->nr_pages_per_block;
-
+				p->gc_src_bab[cur_unit] = NULL;
+				src_blk = NULL;
 			}
+
+			req = &hlm_gc->llm_reqs[unit];
+
+			hlm_reqs_pool_reset_fmain (&req->fmain);
+			hlm_reqs_pool_reset_logaddr (&req ->logaddr);
 
 			// 2. Check the Src Block
 			if (p->gc_src_blk_offs[cur_unit] == np->nr_pages_per_block)
@@ -1237,13 +1399,13 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				ch = cur_unit / np->nr_chips_per_channel;
 				way = cur_unit % np->nr_chips_per_channel; 
 
-				// choose victim blocks - new src block
-				if ((src_blk != NULL) && (src_blk->nr_invalid_subpages != 0))
+				if (p->bai->anr_free_blks[ch][way] > GC_HIGH_THRESHOLD)
 				{
-					bdbm_msg("ch :%lld, way : %lld, blk :%lld, i:%d, %d",ch, way, src_blk->block_no, src_blk->nr_invalid_subpages, src_blk->info);
-					bdbm_bug_on(1);
+					// we already have enough free blocks, so don't need to do gc.
+					continue;
 				}
 
+				// choose victim blocks - new src block
 				if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
 				{
 					p->gc_src_bab[cur_unit] = src_blk;
@@ -1252,13 +1414,14 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 					if (src_blk->nr_invalid_subpages == np->nr_pages_per_block)
 					{
 						p->gc_src_blk_offs[cur_unit] = np->nr_pages_per_block;
-					}						
-			
+					}
 
+					p->total_write_count[cur_unit] += np->nr_pages_per_block;
+					p->invald_page_count[cur_unit] += src_blk->nr_invalid_subpages;
 					//	bdbm_msg ("S:%lld,%lld,%lld,i: %d",src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->nr_invalid_subpages);
-				}				
+				}
 			}
-			
+
 			if (src_blk == NULL)
 				break;
 
@@ -1333,11 +1496,14 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				unit = ch * np->nr_chips_per_channel + way;
 				src_blk = p->gc_src_bab[unit];
  
-				if (p->substituted == 1)
+				if (p->substituted != 0)
 				{
-					if (unit == p->target_plane)
+					uint64_t src_unit;					
+					uint64_t adj_index;
+
+					if (is_target_unit(unit, &src_unit, &adj_index) && (p->substituted & (0x01<<adj_index)))
 					{
-						src_blk = p->gc_src_bab[p->max_plane];
+						src_blk = p->gc_src_bab[src_unit];
 					}
 				}
 
@@ -1379,9 +1545,9 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 				
 				if (write_bypass == 1)
 				{
-					if (src_blk->nr_invalid_subpages != np->nr_pages_per_block)
+					if ((p->bai->anr_free_blks[ch][way] <= GC_HIGH_THRESHOLD) && (src_blk->nr_invalid_subpages != np->nr_pages_per_block))
 					{
-						bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld",ch, way, src_blk->block_no, src_blk->nr_invalid_subpages, src_blk->channel_no, src_blk->chip_no);
+						bdbm_msg("%lld,%lld,%lld,%lld,%lld,%lld,%d",ch, way, src_blk->block_no, src_blk->nr_invalid_subpages, src_blk->channel_no, src_blk->chip_no, src_blk->status);
 						bdbm_bug_on (1);
 					}	
 

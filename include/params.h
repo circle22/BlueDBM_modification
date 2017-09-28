@@ -30,7 +30,11 @@ THE SOFTWARE.
 //#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(3)
 #define VALID_BALANCE	
+#define ADJUST_FACTOR	(32)
 
+
+#define GC_HIGH_THRESHOLD	(10)
+#define GC_LOW_THRESHOLD	(2)
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE
