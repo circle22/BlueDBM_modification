@@ -117,6 +117,8 @@ typedef struct {
 	uint64_t dst_offset;	
 
 	uint64_t external_copy_count;
+	uint64_t internal_copy_count;
+	uint64_t refresh_copy_count;
 
 	uint64_t adjust_count;
 	
@@ -179,10 +181,16 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 		}
 	}
 
-
 	/* get a set of free blocks for active blocks */
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_chips_per_channel; j++) 
+		{
+			/* restore previous active block */
+			if ((*bab) != NULL)
+			{
+				bdbm_abm_make_dirty_blk(bai, i, j, (*bab)->block_no);
+			}
+			
 			/* prepare & commit free blocks */
 			if ((*bab = bdbm_abm_get_free_block_prepare (bai, i, j))) {
 				bdbm_abm_get_free_block_commit (bai, *bab);
@@ -357,6 +365,9 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->src_hand = 0;
 	p->dst_offset = 0;
 	p->external_copy_count = 0;
+	p->internal_copy_count = 0;
+	p->refresh_copy_count = 0;
+
 	//p->src_unit_idx[0];
 	
 	p->adjust_count = 0;
@@ -535,6 +546,34 @@ void bdbm_page_ftl_print_WAF(void)
 
 }
 
+void bdbm_page_ftl_print_copyback_info(bdbm_drv_info_t* bdi)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	bdbm_abm_block_t* cur_blk = NULL;
+	struct list_head* pos = NULL;
+
+	uint64_t ch, way;
+	uint64_t blk_info[6] = {0, }
+
+	bdbm_msg(" MaxCopy:  %lld", MAX_COPY_BACK);
+		
+	for (ch = 0; ch < np->nr_channels; ch++)
+	{
+		for (way = 0; way < np->nr_chips_per_channel; way++)
+		{
+			bdbm_abm_list_for_each_dirty_block (pos, p->bai, ch, way); 
+			{
+				cur_blk = bdbm_abm_fetch_dirty_block (pos);
+
+				blk_info[cur_blk->copy_count]++;
+ 			}
+		}
+	}
+
+	bdbm_msg(" 		0: %lld, 1: %lld, 2: %lld, 3: %lld, 4: %lld, 5: %lld", blk_info[0],blk_info[1],blk_info[2],blk_info[3],blk_info[4],blk_info[5]);
+}
+
 
 uint32_t bdbm_page_ftl_get_free_ppa (
 	bdbm_drv_info_t* bdi, 
@@ -591,10 +630,11 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 		//	bdbm_page_ftl_print_WAF();
 		//	bdbm_page_ftl_print_totalEC(bdi);
 		//	bdbm_msg("Alloc_HostFreeBlk");
+			bdbm_page_ftl_print_copyback_info(bdi);
 
 			if ( p->gc_copy_count != 0)
 			{
-				bdbm_msg("external copy %lld, %lld,  %lld  /100 %", p->external_copy_count, p->gc_copy_count, p->external_copy_count *10000/p->gc_copy_count);
+				bdbm_msg("external copy %lld, %lld,  %lld %, internal: %lld, refresh: %lld", p->external_copy_count, p->gc_copy_count, p->external_copy_count *10000/p->gc_copy_count, p->internal_copy_count, p->refresh_copy_count);
 			}
 		}
 	} else {
@@ -624,8 +664,16 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 		//	bdbm_error ("__bdbm_page_ftl_get_active_blocks failed");
 		//	return 1;
 		//}
+		uint64_t ch = unit/np->nr_chips_per_channel;
+		uint64_t way = unit%np->nr_chips_per_channel;
+		
+		/* restore previous active block */
+		if (p->gc_dst_bab[copy_count][unit] != NULL)
+		{
+			bdbm_abm_make_dirty_blk(p->bai, ch, way, p->gc_dst_bab[copy_count][unit]->block_no);
+		}
 
-		if ((p->gc_dst_bab[copy_count][unit] = bdbm_abm_get_free_block_prepare (p->bai, unit/np->nr_chips_per_channel, unit%np->nr_chips_per_channel)))
+		if ((p->gc_dst_bab[copy_count][unit] = bdbm_abm_get_free_block_prepare (p->bai, ch, way)))
 		{
 			bdbm_abm_get_free_block_commit (p->bai, p->gc_dst_bab[copy_count][unit]);
 			p->gc_dst_bab[copy_count][unit]->info = 11; //dest.
@@ -862,20 +910,25 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	a = p->ac_bab[unit];
 	d = p->gc_dst_bab[0][unit];
 
-	bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) {
+	bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) 
+	{
 		b = bdbm_abm_fetch_dirty_block (pos);
-		if (a == b)
-			continue;
-		if (d == b)
-			continue;
-		if (b->nr_invalid_subpages == np->nr_subpages_per_block) {
+
+		// check with active block or dst..
+		bdbm_bug_on(a == b);
+		bdbm_bug_on(a == d);
+		
+		if (b->nr_invalid_subpages == np->nr_subpages_per_block) 
+		{
 			v = b;
 			break;
 		}
+		
 		if (v == NULL) {
 			v = b;
 			continue;
 		}
+		
 		if (b->nr_invalid_subpages > v->nr_invalid_subpages)
 			v = b;
 	}
@@ -1312,10 +1365,26 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 		{
 			uint64_t src_unit;
 			uint64_t write_bypass = 1; 
+			uint64_t dst_index = 0; // default			
 			
 			unit = ch * np->nr_chips_per_channel + way;
 			src_unit = p->src_unit_idx[unit];	
 			src_blk = p->gc_src_bab[src_unit];
+
+			// using. src->copy_count info, src/dst plane information.
+			if (unit == src_unit)
+			{
+				dst_index = src_blk->copy_count + 1;
+				if (dst_index > MAX_COPY_BACK)
+				{
+					dst_index = 0;
+					p->refresh_copy_count++;
+				}
+				else
+				{
+					p->internal_copy_count++;
+				}
+			}
 
 			// Write page
 			/* build hlm_req_gc for writes */
@@ -1359,7 +1428,8 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 			}
 		
 			req->ptr_hlm_req = (void*)hlm_gc_w;
-			if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, src_blk->copy_count, &req->phyaddr) != 0) {
+		
+			if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, dst_index, &req->phyaddr) != 0) {
 				bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
 				bdbm_bug_on (1);
 			}

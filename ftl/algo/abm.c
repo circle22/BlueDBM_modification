@@ -511,6 +511,37 @@ void bdbm_abm_set_to_dirty_block (
 
 }
 
+void bdbm_abm_make_dirty_blk (
+	bdbm_abm_info_t* bai, 
+	uint64_t channel_no, 
+	uint64_t chip_no, 
+	uint64_t block_no)
+{
+	bdbm_abm_block_t* b = NULL;
+
+	b = bdbm_abm_get_block (bai, channel_no, chip_no, block_no);
+
+	/* is the block clean? */
+	if (b->status != BDBM_ABM_BLK_CLEAN) {
+		bdbm_msg ("b->status: %u (%llu %llu %llu) (%llu %llu)", 
+			b->status, channel_no, chip_no, block_no, page_no, subpage_no);
+		bdbm_bug_on (b->status != BDBM_ABM_BLK_CLEAN);
+	}
+
+	/* if so, its status is changed and then moved to a dirty list */
+	b->status = BDBM_ABM_BLK_DIRTY;
+	list_del (&b->list);
+	list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->chip_no]));
+
+	if (bai->nr_clean_blks > 0) {
+		bdbm_bug_on (bai->nr_clean_blks == 0);
+		__bdbm_abm_check_status (bai);
+
+		bai->nr_clean_blks--;
+		bai->nr_dirty_blks++;
+	}
+}
+
 void bdbm_abm_invalidate_page (
 	bdbm_abm_info_t* bai, 
 	uint64_t channel_no, 
@@ -539,8 +570,11 @@ void bdbm_abm_invalidate_page (
 	if (b->pst == NULL)
 		return;
 
-	if (b->pst[pst_off] == BABM_ABM_SUBPAGE_NOT_INVALID) {
+	if (b->pst[pst_off] == BABM_ABM_SUBPAGE_NOT_INVALID) 
+	{
 		b->pst[pst_off] = BDBM_ABM_SUBPAGE_INVALID;
+
+#if 0
 		/* is the block clean? */
 		if (b->nr_invalid_subpages == 0) {
 			if (b->status != BDBM_ABM_BLK_CLEAN) {
@@ -562,10 +596,13 @@ void bdbm_abm_invalidate_page (
 				bai->nr_dirty_blks++;
 			}
 		}
+#endif		
 		/* increase # of invalid pages in the block */
 		b->nr_invalid_subpages++;
 		bdbm_bug_on (b->nr_invalid_subpages > bai->np->nr_subpages_per_block);
-	} else {
+	}
+	else 
+	{
 		/* ignore if it was invalidated before */
 			bdbm_error ("already invalidated");
 	}
