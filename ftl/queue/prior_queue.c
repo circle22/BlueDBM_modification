@@ -122,9 +122,12 @@ bdbm_prior_queue_t* bdbm_prior_queue_create (
 		bdbm_free_atomic (mq);
 		return NULL;
 	}
-	for (loop = 0; loop < mq->nr_queues; loop++)
-		INIT_LIST_HEAD (&mq->qlh[loop]);
 
+	for (loop = 0; loop < mq->nr_queues; loop++)
+	{
+		INIT_LIST_HEAD (&mq->qlh[loop]);
+		mq->aQic[loop] = 0;	
+	}
 	/* create hash */
 	mq->hash_lpa = NULL;
 
@@ -176,6 +179,8 @@ uint8_t bdbm_prior_queue_enqueue (
 			list_add_tail (&q->list, &mq->qlh[qid]);	/* add to tail */
 			mq->qic++;
 			ret = 0;
+			
+			mq->aQic[qid]++;
 
 			/*
 			if (mq->qic > max_queue_items) {
@@ -233,7 +238,9 @@ void* bdbm_prior_queue_dequeue (
 				if (q->lock == 0) {
 					uint64_t highest_tag = get_highest_priority_tag (mq, q->lpa);
 					if (highest_tag == q->tag)
+					{
 						break;
+					}
 				}
 			}
 			q = NULL;
@@ -252,7 +259,8 @@ void* bdbm_prior_queue_dequeue (
 
 uint8_t bdbm_prior_queue_remove (
 	bdbm_prior_queue_t* mq, 
-	bdbm_prior_queue_item_t* q)
+	bdbm_prior_queue_item_t* q,
+	uint64_t qid)
 {
 	unsigned long flags;
 
@@ -262,6 +270,8 @@ uint8_t bdbm_prior_queue_remove (
 		list_del (&q->list);
 		bdbm_free_atomic (q);
 		mq->qic--;
+
+		mq->aQic[qid]--;
 		/*bdbm_msg ("[QUEUE] # of items in queue = %llu", mq->qic);*/
 	}
 	bdbm_spin_unlock_irqrestore (&mq->lock, flags);

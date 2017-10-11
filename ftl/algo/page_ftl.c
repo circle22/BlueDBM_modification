@@ -111,11 +111,13 @@ typedef struct {
 	uint64_t total_write_count[64];
 	uint64_t invald_page_count[64];
 
-
 	uint64_t src_valid_page_count;
 	uint64_t src_hand;
 	uint64_t src_unit_idx[64];
-	
+	uint64_t dst_offset;	
+
+	uint64_t external_copy_count;
+
 	uint64_t adjust_count;
 	
 	uint64_t cumulative_adjust_count;
@@ -317,7 +319,8 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		bdbm_page_ftl_destroy (bdi);		
 	}
 	
-	for (i = 0; i < p->nr_punits; i++)
+//	for (i = 0; i < p->nr_punits; i++)
+	for (i = 0; i < 64; i++)
 	{
 		p->gc_src_blk_offs[i] = np->nr_pages_per_block;
 
@@ -352,14 +355,11 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 
 	p->src_valid_page_count = 0;
 	p->src_hand = 0;
+	p->dst_offset = 0;
+	p->external_copy_count = 0;
 	//p->src_unit_idx[0];
 	
 	p->adjust_count = 0;
-	for (i = 0; i < ADJUST_FACTOR; i++)
-	{
-		p->max_plane[i] = 0;
-		p->target_plane[i] = 0;
-	}
 
 	p->cumulative_adjust_count = 0;
 	p->gc_copy_count = 0;
@@ -588,8 +588,14 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 
 			//bdbm_page_ftl_print_hostWrite();
 
-			bdbm_page_ftl_print_WAF();
+		//	bdbm_page_ftl_print_WAF();
 		//	bdbm_page_ftl_print_totalEC(bdi);
+		//	bdbm_msg("Alloc_HostFreeBlk");
+
+			if ( p->gc_copy_count != 0)
+			{
+				bdbm_msg("external copy %lld, %lld,  %lld  /100 %", p->external_copy_count, p->gc_copy_count, p->external_copy_count *10000/p->gc_copy_count);
+			}
 		}
 	} else {
 		/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
@@ -666,7 +672,6 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 	for (k = 0; k < np->nr_subpages_per_page; k++) {
 		if (logaddr->lpa[k] == -1) {
 			/* the correpsonding subpage must be set to invalid for gc */
-			bdbm_msg("gc invalidate");
 			bdbm_abm_invalidate_page (
 				p->bai, 
 				phyaddr->channel_no, 
@@ -1056,12 +1061,13 @@ erase_blks:
 }
 #endif
 
-
 void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
+	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for readi
+	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
+
 	uint64_t ch, way, unit;
 	bdbm_llm_req_t* req;
 	bdbm_abm_block_t* src_blk;
@@ -1075,12 +1081,16 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 		{
 			uint64_t erase_req_idx = p->nr_punits*2 + unit;
 
-			bdbm_bug_on(src_blk->nr_invalid_subpages != np->nr_subpages_per_block);
+			if (src_blk->nr_invalid_subpages != np->nr_subpages_per_block)
+			{
+				bdbm_msg("%lld, %lld",unit,src_blk->nr_invalid_subpages);  
+				bdbm_bug_on(1);
+			}
 				
 			// src is already invalided.
 			req = &hlm_gc->llm_reqs[erase_req_idx];
 			req->req_type = REQTYPE_GC_ERASE;
-			req->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
+			req->logaddr.lpa[0] = 0x7FFFFFFE - unit; /* lpa is not available now */
 			req->phyaddr.channel_no = src_blk->channel_no;
 			req->phyaddr.chip_no = src_blk->chip_no;
 			req->phyaddr.block_no = src_blk->block_no;
@@ -1088,7 +1098,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 			req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
 			req->ptr_hlm_req = (void*)hlm_gc;
 			req->ret = 0;
-			
+		
 			/* send erase reqs to llm */
 			hlm_gc->req_type = REQTYPE_GC_ERASE;
 			hlm_gc->nr_llm_reqs++; // Need to care Erase case ?
@@ -1112,10 +1122,9 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 		ch = unit / np->nr_chips_per_channel;
 		way = unit % np->nr_chips_per_channel; 
 
-		if (p->bai->anr_free_blks[ch][way] > GC_HIGH_THRESHOLD)
+		if (p->bai->anr_free_blks[ch][way] > GC_THRESHOLD)
 		{
 			// we already have enough free blocks, so don't need to do gc.
-			bdbm_bug_on(1);
 			continue;
 		}
 
@@ -1136,6 +1145,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 			p->src_valid_page_count += (np->nr_pages_per_block - src_blk->nr_invalid_subpages);
 		}
 	}
+
+	bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
 }
 
 
@@ -1144,10 +1155,16 @@ uint32_t bdbm_page_ftl_gc_read_state_default(bdbm_drv_info_t* bdi)
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
-	uint64_t page, subPage, 
+	uint64_t page, subPage; 
 	uint64_t unit;
 	bdbm_llm_req_t* req;
-	bdbm_abm_block_t* src_blk;
+	uint64_t average_valid;
+	
+	uint8_t	src_read_count[64] = {0,};
+
+	uint64_t valid_page = 0;
+
+//	bdbm_msg("	read page : %lld", p->src_valid_page_count); 
 
 	// 1. Check Src Validity
 	if (p->src_valid_page_count == 0)
@@ -1159,44 +1176,71 @@ uint32_t bdbm_page_ftl_gc_read_state_default(bdbm_drv_info_t* bdi)
 			// don't need to do gc. sufficient free block.
 			return 0;
 		}
+
 	}
+
+	average_valid = (p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits;
 
 	// 2. read nr_punits page
 	for (unit = 0; unit < p->nr_punits; unit++)
 	{
-		uint64_t unit_idx;
 		uint64_t src_unit;
+		bdbm_abm_block_t* src_blk;
 
-		for (unit_idx = 0; unit_idx < p->nr_punits; unit_idx++)
+		uint64_t idx = 0;
+		uint64_t valid_page_count;
+
+		src_blk = p->gc_src_bab[unit];
+		valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[unit]);	// 6.61%
+ 
+		if ((valid_page_count != 0) && (valid_page_count+1 >= average_valid))
 		{
-			src_unit = p->src_hand + unit_idx;
-			if (src_unit >= p->nr_punits)
+			src_unit = unit;
+			p->src_unit_idx[unit] = src_unit;
+			src_read_count[src_unit]++;
+		}
+		else
+		{
+			// read from other NAND.
+			for (idx = 0; idx < p->nr_punits; idx++)
 			{
-				src_unit -= p->nr_punits;
-			}
+				src_unit = p->src_hand + idx;
+				if (src_unit >= p->nr_punits)
+				{
+					src_unit -= p->nr_punits;
+				}
 
-			src_blk = p->gc_src_bab[src_unit];
+				src_blk = p->gc_src_bab[src_unit];
 
-			if (src_blk->nr_invalid_subpages != np->nr_pages_per_block)			
-			{
-				p->src_hand = src_unit + 1;
-				p->src_unit_idx[unit] = src_unit;
-				
-				break;
+				//if ((src_blk->nr_invalid_subpages + src_read_count[src_unit]) != np->nr_pages_per_block) // default 8.3%
+				//if (np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]) >= average_valid) // 7.11%
+				valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]);	// 6.61% 
+				if ((valid_page_count > average_valid) || ((valid_page_count == average_valid) && (src_unit < unit)))
+				{
+					p->src_hand = src_unit + 1;
+					p->src_unit_idx[unit] = src_unit;
+					src_read_count[src_unit]++;
+
+					break;
+				}
 			}
 		}
-
+	
 		req = &hlm_gc->llm_reqs[unit];
 
 		hlm_reqs_pool_reset_fmain (&req->fmain);
 		hlm_reqs_pool_reset_logaddr (&req ->logaddr);
 
-		if (unit_idx == p->nr_punits)
+		if (idx == p->nr_punits)
 		{
-			// dummy read
-			continue; 
+			continue;
 		}
-		
+	
+		if (unit != src_unit)
+		{
+			p->external_copy_count++;
+		}
+	
 		for (page = p->gc_src_blk_offs[src_unit]; page < np->nr_pages_per_block; page++) 
 		{
 			int has_valid = 0;
@@ -1242,7 +1286,7 @@ uint32_t bdbm_page_ftl_gc_read_state_default(bdbm_drv_info_t* bdi)
 
 				break;
 			}
-		}								
+		}
 	}
 
 	return 1;
@@ -1255,28 +1299,27 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
 	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
-	uint64_t ch, way, page, subPage, unit;
-	bdbm_llm_req_t* req;
-	bdbm_abm_block_t* src_blk;
-	static uint32_t state = 0;
+	uint64_t ch, way, subPage, unit;
+	bdbm_llm_req_t* req = NULL;
+	bdbm_abm_block_t* src_blk = NULL;
 
 	// copy information from read to write hlm...
-	hlm_reqs_pool_copy (hlm_gc_w, hlm_gc, np);
+	hlm_reqs_pool_copy (hlm_gc_w, hlm_gc, np, p->dst_offset);
 
 	for (way = 0; way < np->nr_chips_per_channel; way++)
 	{
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{
 			uint64_t src_unit;
-			uint64_t write_bypass = 0; 
+			uint64_t write_bypass = 1; 
 			
 			unit = ch * np->nr_chips_per_channel + way;
-			src_unit = p->src_unit_idx[unit]				
+			src_unit = p->src_unit_idx[unit];	
 			src_blk = p->gc_src_bab[src_unit];
 
 			// Write page
 			/* build hlm_req_gc for writes */
-			req = &hlm_gc_w->llm_reqs[unit];
+			req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
 			req->req_type = REQTYPE_GC_WRITE; /* change to write */
 			
 			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
@@ -1314,26 +1357,19 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 					bdbm_bug_on (1);
 				}
 			}
-			
+		
 			req->ptr_hlm_req = (void*)hlm_gc_w;
 			if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, src_blk->copy_count, &req->phyaddr) != 0) {
 				bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
 				bdbm_bug_on (1);
 			}
 
-			if (write_bypass == 0)
+			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr) != 0) 
 			{
-				if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr) != 0) 
-				{
-					bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
-					bdbm_bug_on (1);
-				}
+				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
+				bdbm_bug_on (1);
 			}
-			else
-			{
-				bdbm_msg("write_bypass, unit:%lld, validpage:%lld", unit, p->src_valid_page_count);
-			}
-			
+		
 			/* send write reqs to llm */
 			hlm_gc_w->req_type = REQTYPE_GC_WRITE;
 			hlm_gc_w->nr_llm_reqs++;
@@ -1355,14 +1391,17 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 	{
 		p->src_valid_page_count = 0;
 	}
+
+	p->dst_offset = req->phyaddr.page_no * p->nr_punits;
 		
+//	bdbm_msg("	write page : %lld", p->src_valid_page_count);
+ 
 	return 0;
 }
 
 uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
 	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
 
@@ -1371,7 +1410,14 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 	p->nop_count++;
 	if ((p->nop_count % 3000000) == 0)
 	{
-		bdbm_msg("nop count : %lld, read pending : %lld", p->nop_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done));
+		if (p->nop_count < 30000000)
+		{
+			bdbm_msg("nop count : %lld, read pending : %lld", p->nop_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done));
+		}
+		else
+		{
+			bdbm_bug_on(1);
+		}
 	}
 
 	if ((state == 0) && (hlm_gc_w->nr_llm_reqs >= atomic64_read(&hlm_gc_w->nr_llm_reqs_done)+p->nr_punits))

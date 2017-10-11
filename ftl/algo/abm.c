@@ -203,7 +203,7 @@ bdbm_abm_info_t* bdbm_abm_create (
 	bai->nr_clean_blks = 0;
 	bai->nr_dirty_blks = 0;
 	bai->nr_bad_blks = 0;
-	bai->nr_gc_trigger_threshold = np->nr_channels * np->nr_chips_per_channel * 3;
+	bai->nr_gc_trigger_threshold = np->nr_channels * np->nr_chips_per_channel * GC_THRESHOLD;
 	
 	/* done */
 	return bai;

@@ -102,17 +102,20 @@ int __llm_mq_thread (void* arg)
 				/* there are items in Q; wake up */
 				bdbm_thread_schedule_cancel (p->llm_thread);
 			}
-		}
-
+		}	
+	
 		/* send reqs until Q becomes empty */
 		for (loop = 0; loop < p->nr_punits; loop++) {
 			bdbm_prior_queue_item_t* qitem = NULL;
 			bdbm_llm_req_t* r = NULL;
-
+			
 			/* if pu is busy, then go to the next pnit */
 			if (!bdbm_sema_try_lock (&p->punit_locks[loop]))
+			{
 				continue;
-			
+			}
+
+
 			if ((r = (bdbm_llm_req_t*)bdbm_prior_queue_dequeue (p->q, loop, &qitem)) == NULL) {
 				bdbm_sema_unlock (&p->punit_locks[loop]);
 				continue;
@@ -122,8 +125,9 @@ int __llm_mq_thread (void* arg)
 
 			pmu_update_q (bdi, r);
 
-			if (cnt % 50000 == 0) {
-		//		bdbm_msg ("llm_make_req: %llu, %llu", cnt, bdbm_prior_queue_get_nr_items (p->q));
+			if (cnt % 50000 == 0) 
+			{
+			//	bdbm_msg ("llm_make_req: %llu, %llu", cnt, bdbm_prior_queue_get_nr_items (p->q));
 			}
 
 			if (bdi->ptr_dm_inf->make_req (bdi, r)) {
@@ -168,6 +172,7 @@ uint32_t llm_mq_create (bdbm_drv_info_t* bdi)
 		bdbm_error ("bdbm_malloc_atomic failed");
 		goto fail;
 	}
+
 	for (loop = 0; loop < p->nr_punits; loop++) {
 		bdbm_sema_init (&p->punit_locks[loop]);
 	}
@@ -292,7 +297,6 @@ void llm_mq_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 		/* get a parallel unit ID */
 		/*bdbm_msg ("unlock: %lld", r->phyaddr.punit_id);*/
 		bdbm_sema_unlock (&p->punit_locks[r->phyaddr.punit_id]);
-
 		/*bdbm_msg ("LLM Done: lpa=%llu", r->logaddr.lpa[0]);*/
 
 		pmu_inc (bdi, r);
@@ -302,18 +306,18 @@ void llm_mq_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 		r->phyaddr = r->phyaddr_dst;
 
 		/* remove it from the Q; this automatically triggers another request to be sent to NAND flash */
-		bdbm_prior_queue_remove (p->q, qitem);
+		bdbm_prior_queue_remove (p->q, qitem, r->phyaddr.punit_id);
 
 		/* wake up thread if it sleeps */
 		bdbm_thread_wakeup (p->llm_thread);
 	} else {
 		/* get a parallel unit ID */
-		bdbm_prior_queue_remove (p->q, qitem);
+		bdbm_prior_queue_remove (p->q, qitem, r->phyaddr.punit_id);
 
 		/* complete a lock */
 		/*bdbm_msg ("unlock: %lld", r->phyaddr.punit_id);*/
 		bdbm_sema_unlock (&p->punit_locks[r->phyaddr.punit_id]);
-
+ 
 		/* update the elapsed time taken by NAND devices */
 		pmu_update_tot (bdi, r);
 		pmu_inc (bdi, r);

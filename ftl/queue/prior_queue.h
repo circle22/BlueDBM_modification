@@ -51,6 +51,7 @@ typedef struct {
 	uint64_t nr_queues;
 	int64_t max_size;
 	int64_t qic; /* queue item count */
+	int64_t aQic[64];
 	bdbm_spinlock_t lock; /* queue lock */
 	struct list_head* qlh; /* queue list header */
  	bdbm_prior_lpa_item_t* hash_lpa;	/* lpa hash */
@@ -60,7 +61,7 @@ bdbm_prior_queue_t* bdbm_prior_queue_create (uint64_t nr_queues, int64_t size);
 void bdbm_prior_queue_destroy (bdbm_prior_queue_t* mq);
 uint8_t bdbm_prior_queue_enqueue (bdbm_prior_queue_t* mq, uint64_t qid, uint64_t lpa, void* req);
 void* bdbm_prior_queue_dequeue (bdbm_prior_queue_t* mq, uint64_t qid, bdbm_prior_queue_item_t** out_q);
-uint8_t bdbm_prior_queue_remove (bdbm_prior_queue_t* mq, bdbm_prior_queue_item_t* q);
+uint8_t bdbm_prior_queue_remove (bdbm_prior_queue_t* mq, bdbm_prior_queue_item_t* q, uint64_t qid);
 uint8_t bdbm_prior_queue_move (bdbm_prior_queue_t* mq, uint64_t quid, bdbm_prior_queue_item_t* q);
 uint8_t bdbm_prior_queue_is_full (bdbm_prior_queue_t* mq);
 uint8_t bdbm_prior_queue_is_empty (bdbm_prior_queue_t* mq, uint64_t qid);

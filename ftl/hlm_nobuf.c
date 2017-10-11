@@ -133,7 +133,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 
 				if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
 				{
-				//	bdbm_msg("OnDemand GC \n");
+					//bdbm_msg("OnDemand GC start\n");
 
 					do 
 					{
@@ -143,6 +143,8 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 						}
 					}
 					while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0);
+					
+					//bdbm_msg("OnDemand GC end\n");
 				}
 #endif
 				
@@ -262,7 +264,7 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			}
 			while(ftl->is_gc_needed (bdi, 0) || (ret != 0));
 			
-		//	bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
+			//bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
 		}
 #endif
 	} else if (dp->mapping_type == MAPPING_POLICY_RSD ||

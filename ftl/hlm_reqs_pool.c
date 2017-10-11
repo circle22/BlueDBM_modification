@@ -494,7 +494,8 @@ void hlm_reqs_pool_relocate_kp (bdbm_llm_req_t* lr, uint64_t new_sp_ofs)
 void hlm_reqs_pool_copy(
 	bdbm_hlm_req_gc_t* dst, 
 	bdbm_hlm_req_gc_t* src, 
-	bdbm_device_params_t* np)
+	bdbm_device_params_t* np,
+	uint64_t dst_offset)
 {
 	uint64_t subPage, unit;
 	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
@@ -504,10 +505,10 @@ void hlm_reqs_pool_copy(
 
 	for (unit = 0; unit < nr_punits; unit++) 
 	{
-		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[unit].fmain);
+		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[dst_offset + unit].fmain);
 
 		src_req = &src->llm_reqs[unit];
-		dst_req = &dst->llm_reqs[unit];
+		dst_req = &dst->llm_reqs[dst_offset + unit];
 
 		for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
 		{
