@@ -26,9 +26,8 @@ THE SOFTWARE.
 #define _BLUEDBM_PARAMS_H
 
 #define DWHONG	// Test
-//#define COPYBACK_SUPPORT
-//#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
-#define MAX_COPY_BACK	(2 + 1) // +1 is used for default or external copyback case
+#define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
+#define MAX_COPY_BACK	(4 + 1) // +1 is used for default or external copyback case
 
 #define GC_HIGH_THRESHOLD	(10)
 #define GC_THRESHOLD		(2 + MAX_COPY_BACK)

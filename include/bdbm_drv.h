@@ -181,6 +181,7 @@ typedef struct {
 typedef struct {
 	uint32_t req_type; /* read, write, or trim */
 	uint8_t ret;	/* old for GC */
+	uint8_t dma;	/* need to do DMA or not */
 	void* ptr_hlm_req;
 	void* ptr_qitem;
 	bdbm_sema_t* done;	/* maybe used by applications that require direct notifications from an interrupt handler */

@@ -110,7 +110,8 @@ typedef struct {
 	uint64_t host_write_count[64];
 	uint64_t total_write_count[64];
 	uint64_t invald_page_count[64];
-
+	uint64_t block_info[MAX_COPY_BACK];
+	
 	uint64_t src_valid_page_count;
 	uint64_t src_hand;
 	uint64_t src_unit_idx[64];
@@ -171,6 +172,8 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 {
 	uint64_t i, j;
 
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
 	for (i = 0; i < np->nr_channels; i++) {
 		for (j = 0; j < np->nr_chips_per_channel; j++) {
 			if (bai->anr_free_blks[i][j] < 2)
@@ -196,7 +199,10 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 				bdbm_abm_get_free_block_commit (bai, *bab);
 				/*bdbm_msg ("active blk = %p", *bab);*/
 				
-				(*bab)->info = 10;// active	
+				(*bab)->info = 10;// active
+				(*bab)->copy_count = 0;
+	
+				p->block_info[0]++;
 				//if ( i==0 && j==0)
 				{
 				//	bdbm_msg("A: %lld,%lld,%lld", (*bab)->channel_no, (*bab)->chip_no, (*bab)->block_no);
@@ -317,6 +323,8 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 			bdbm_error ("bdbm_zmalloc failed");
 			bdbm_page_ftl_destroy (bdi);		
 		}
+
+		p->block_info[i] = 0;
 	}
 
 	// src block offset.
@@ -549,29 +557,38 @@ void bdbm_page_ftl_print_WAF(void)
 void bdbm_page_ftl_print_copyback_info(bdbm_drv_info_t* bdi)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+#if 0
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_abm_block_t* cur_blk = NULL;
 	struct list_head* pos = NULL;
 
 	uint64_t ch, way;
-	uint64_t blk_info[6] = {0, }
+	uint64_t blk_info[6] = {0, };
 
-	bdbm_msg(" MaxCopy:  %lld", MAX_COPY_BACK);
-		
-	for (ch = 0; ch < np->nr_channels; ch++)
-	{
-		for (way = 0; way < np->nr_chips_per_channel; way++)
+	if (p->bai->nr_dirty_blks != 0)
+	{	
+		for (ch = 0; ch < np->nr_channels; ch++)
 		{
-			bdbm_abm_list_for_each_dirty_block (pos, p->bai, ch, way); 
+			for (way = 0; way < np->nr_chips_per_channel; way++)
 			{
-				cur_blk = bdbm_abm_fetch_dirty_block (pos);
+				bdbm_abm_list_for_each_dirty_block (pos, p->bai, ch, way) 
+				{
+					cur_blk = bdbm_abm_fetch_dirty_block (pos);
 
-				blk_info[cur_blk->copy_count]++;
- 			}
+					blk_info[cur_blk->copy_count]++;
+				}
+			}
 		}
-	}
 
-	bdbm_msg(" 		0: %lld, 1: %lld, 2: %lld, 3: %lld, 4: %lld, 5: %lld", blk_info[0],blk_info[1],blk_info[2],blk_info[3],blk_info[4],blk_info[5]);
+		bdbm_msg(" Blk_distribution:%lld,%lld,%lld,%lld,%lld,%lld", blk_info[0],blk_info[1],blk_info[2],blk_info[3],blk_info[4],blk_info[5]);
+	}
+#else
+
+	bdbm_msg(" Blk_distribution:%lld,%lld,%lld,%lld,%lld,%lld", p->block_info[0],p->block_info[1],p->block_info[2],p->block_info[3],p->block_info[4],p->block_info[5]);
+
+#endif
+
+
 }
 
 
@@ -676,740 +693,769 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 		if ((p->gc_dst_bab[copy_count][unit] = bdbm_abm_get_free_block_prepare (p->bai, ch, way)))
 		{
 			bdbm_abm_get_free_block_commit (p->bai, p->gc_dst_bab[copy_count][unit]);
-			p->gc_dst_bab[copy_count][unit]->info = 11; //dest.
-			//if (unit == 0)
-			{
-			//	bdbm_msg("D:%lld,%lld,%lld,%lld", p->gc_dst_bab[copy_count][unit]->channel_no, p->gc_dst_bab[copy_count][unit]->chip_no, p->gc_dst_bab[copy_count][unit]->block_no, unit);
+			p->gc_dst_bab[copy_count][unit]->info = 11; //dest
+				p->gc_dst_bab[copy_count][unit]->copy_count = copy_count;
+				p->block_info[copy_count]++;
+				//if (unit == 0)
+				{
+				//	bdbm_msg("D:%lld,%lld,%lld,%lld", p->gc_dst_bab[copy_count][unit]->channel_no, p->gc_dst_bab[copy_count][unit]->chip_no, p->gc_dst_bab[copy_count][unit]->block_no, unit);
+				}
 			}
+			else 
+			{
+				bdbm_error ("bdbm_abm_get_free_block_prepare failed");
+				return 1; 
+			}
+					
+			/* ok; go ahead with 0 offset */ 
+			p->gc_dst_blk_offs[copy_count][unit] = 0;
 		}
-		else 
-		{
-			bdbm_error ("bdbm_abm_get_free_block_prepare failed");
-			return 1; 
-		}
-				
-		/* ok; go ahead with 0 offset */ 
-		p->gc_dst_blk_offs[copy_count][unit] = 0;
+
+		/* get the physical offset of the active blocks */
+		b = p->gc_dst_bab[copy_count][unit];
+
+		ppa->channel_no =  b->channel_no;
+		ppa->chip_no = b->chip_no;
+		ppa->block_no = b->block_no;
+		ppa->page_no = p->gc_dst_blk_offs[copy_count][unit];
+		ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa); // unit
+
+		p->gc_dst_blk_offs[copy_count][unit]++;
+
+		return 0;
 	}
 
-	/* get the physical offset of the active blocks */
-	b = p->gc_dst_bab[copy_count][unit];
+	uint32_t bdbm_page_ftl_map_lpa_to_ppa (
+		bdbm_drv_info_t* bdi, 
+		bdbm_logaddr_t* logaddr,
+		bdbm_phyaddr_t* phyaddr)
+	{
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_page_mapping_entry_t* me = NULL;
+		int k;
 
-	ppa->channel_no =  b->channel_no;
-	ppa->chip_no = b->chip_no;
-	ppa->block_no = b->block_no;
-	ppa->page_no = p->gc_dst_blk_offs[copy_count][unit];
-	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa); // unit
+		/* is it a valid logical address */
+		for (k = 0; k < np->nr_subpages_per_page; k++) {
+			if (logaddr->lpa[k] == -1) {
+				/* the correpsonding subpage must be set to invalid for gc */
+				bdbm_abm_invalidate_page (
+					p->bai, 
+					phyaddr->channel_no, 
+					phyaddr->chip_no,
+					phyaddr->block_no,
+					phyaddr->page_no,
+					k
+				);
 
-	p->gc_dst_blk_offs[copy_count][unit]++;
+				continue;
+			}
 
-	return 0;
-}
+			if (logaddr->lpa[k] >= np->nr_subpages_per_ssd) {
+				bdbm_error ("LPA is beyond logical space (%llX)", logaddr->lpa[k]);
+				return 1;
+			}
 
-uint32_t bdbm_page_ftl_map_lpa_to_ppa (
-	bdbm_drv_info_t* bdi, 
-	bdbm_logaddr_t* logaddr,
-	bdbm_phyaddr_t* phyaddr)
-{
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_page_mapping_entry_t* me = NULL;
-	int k;
+			/* get the mapping entry for lpa */
+			me = &p->ptr_mapping_table[logaddr->lpa[k]];
+			bdbm_bug_on (me == NULL);
 
-	/* is it a valid logical address */
-	for (k = 0; k < np->nr_subpages_per_page; k++) {
-		if (logaddr->lpa[k] == -1) {
-			/* the correpsonding subpage must be set to invalid for gc */
-			bdbm_abm_invalidate_page (
-				p->bai, 
-				phyaddr->channel_no, 
-				phyaddr->chip_no,
-				phyaddr->block_no,
-				phyaddr->page_no,
-				k
-			);
-
-			continue;
+			/* update the mapping table */
+			if (me->status == PFTL_PAGE_VALID) {
+				bdbm_abm_invalidate_page (
+					p->bai, 
+					me->phyaddr.channel_no, 
+					me->phyaddr.chip_no,
+					me->phyaddr.block_no,
+					me->phyaddr.page_no,
+					me->sp_off
+				);
+			}
+			me->status = PFTL_PAGE_VALID;
+			me->phyaddr.channel_no = phyaddr->channel_no;
+			me->phyaddr.chip_no = phyaddr->chip_no;
+			me->phyaddr.block_no = phyaddr->block_no;
+			me->phyaddr.page_no = phyaddr->page_no;
+			me->sp_off = k;
 		}
 
-		if (logaddr->lpa[k] >= np->nr_subpages_per_ssd) {
-			bdbm_error ("LPA is beyond logical space (%llX)", logaddr->lpa[k]);
+		return 0;
+	}
+
+	uint32_t bdbm_page_ftl_get_ppa (
+		bdbm_drv_info_t* bdi, 
+		int64_t lpa,
+		bdbm_phyaddr_t* phyaddr,
+		uint64_t* sp_off)
+	{
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_page_mapping_entry_t* me = NULL;
+		uint32_t ret;
+
+		/* is it a valid logical address */
+		if (lpa >= np->nr_subpages_per_ssd) {
+			bdbm_error ("A given lpa is beyond logical space (%llu)", lpa);
 			return 1;
 		}
 
 		/* get the mapping entry for lpa */
-		me = &p->ptr_mapping_table[logaddr->lpa[k]];
-		bdbm_bug_on (me == NULL);
+		me = &p->ptr_mapping_table[lpa];
 
-		/* update the mapping table */
-		if (me->status == PFTL_PAGE_VALID) {
-			bdbm_abm_invalidate_page (
-				p->bai, 
-				me->phyaddr.channel_no, 
-				me->phyaddr.chip_no,
-				me->phyaddr.block_no,
-				me->phyaddr.page_no,
-				me->sp_off
-			);
+		/* NOTE: sometimes a file system attempts to read 
+		 * a logical address that was not written before.
+		 * in that case, we return 'address 0' */
+		if (me->status != PFTL_PAGE_VALID) {
+			phyaddr->channel_no = 0;
+			phyaddr->chip_no = 0;
+			phyaddr->block_no = 0;
+			phyaddr->page_no = 0;
+			phyaddr->punit_id = 0;
+			*sp_off = 0;
+			ret = 1;
+		} else {
+			phyaddr->channel_no = me->phyaddr.channel_no;
+			phyaddr->chip_no = me->phyaddr.chip_no;
+			phyaddr->block_no = me->phyaddr.block_no;
+			phyaddr->page_no = me->phyaddr.page_no;
+			phyaddr->punit_id = BDBM_GET_PUNIT_ID (bdi, phyaddr);
+			*sp_off = me->sp_off;
+			ret = 0;
 		}
-		me->status = PFTL_PAGE_VALID;
-		me->phyaddr.channel_no = phyaddr->channel_no;
-		me->phyaddr.chip_no = phyaddr->chip_no;
-		me->phyaddr.block_no = phyaddr->block_no;
-		me->phyaddr.page_no = phyaddr->page_no;
-		me->sp_off = k;
+
+		return ret;
 	}
 
-	return 0;
-}
+	uint32_t bdbm_page_ftl_invalidate_lpa (
+		bdbm_drv_info_t* bdi, 
+		int64_t lpa, 
+		uint64_t len)
+	{	
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_page_mapping_entry_t* me = NULL;
+		uint64_t loop;
 
-uint32_t bdbm_page_ftl_get_ppa (
-	bdbm_drv_info_t* bdi, 
-	int64_t lpa,
-	bdbm_phyaddr_t* phyaddr,
-	uint64_t* sp_off)
-{
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_page_mapping_entry_t* me = NULL;
-	uint32_t ret;
-
-	/* is it a valid logical address */
-	if (lpa >= np->nr_subpages_per_ssd) {
-		bdbm_error ("A given lpa is beyond logical space (%llu)", lpa);
-		return 1;
-	}
-
-	/* get the mapping entry for lpa */
-	me = &p->ptr_mapping_table[lpa];
-
-	/* NOTE: sometimes a file system attempts to read 
-	 * a logical address that was not written before.
-	 * in that case, we return 'address 0' */
-	if (me->status != PFTL_PAGE_VALID) {
-		phyaddr->channel_no = 0;
-		phyaddr->chip_no = 0;
-		phyaddr->block_no = 0;
-		phyaddr->page_no = 0;
-		phyaddr->punit_id = 0;
-		*sp_off = 0;
-		ret = 1;
-	} else {
-		phyaddr->channel_no = me->phyaddr.channel_no;
-		phyaddr->chip_no = me->phyaddr.chip_no;
-		phyaddr->block_no = me->phyaddr.block_no;
-		phyaddr->page_no = me->phyaddr.page_no;
-		phyaddr->punit_id = BDBM_GET_PUNIT_ID (bdi, phyaddr);
-		*sp_off = me->sp_off;
-		ret = 0;
-	}
-
-	return ret;
-}
-
-uint32_t bdbm_page_ftl_invalidate_lpa (
-	bdbm_drv_info_t* bdi, 
-	int64_t lpa, 
-	uint64_t len)
-{	
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_page_mapping_entry_t* me = NULL;
-	uint64_t loop;
-
-	/* check the range of input addresses */
-	if ((lpa + len) > np->nr_subpages_per_ssd) {
-		bdbm_warning ("LPA is beyond logical space (%llu = %llu+%llu) %llu", 
-			lpa+len, lpa, len, np->nr_subpages_per_ssd);
-		return 1;
-	}
-
-	/* make them invalid */
-	for (loop = lpa; loop < (lpa + len); loop++) {
-		me = &p->ptr_mapping_table[loop];
-		if (me->status == PFTL_PAGE_VALID) {
-			bdbm_abm_invalidate_page (
-				p->bai, 
-				me->phyaddr.channel_no, 
-				me->phyaddr.chip_no,
-				me->phyaddr.block_no,
-				me->phyaddr.page_no,
-				me->sp_off
-			);
-			me->status = PFTL_PAGE_INVALID;
+		/* check the range of input addresses */
+		if ((lpa + len) > np->nr_subpages_per_ssd) {
+			bdbm_warning ("LPA is beyond logical space (%llu = %llu+%llu) %llu", 
+				lpa+len, lpa, len, np->nr_subpages_per_ssd);
+			return 1;
 		}
-	}
 
-	return 0;
-}
-
-uint8_t bdbm_page_ftl_is_gc_needed (bdbm_drv_info_t* bdi, int64_t lpa)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	uint64_t nr_free_blks = bdbm_abm_get_nr_free_blocks (p->bai);
-
-	/* invoke gc when remaining free blocks are less than 1% of total blocks */
-	if (nr_free_blks <= p->bai->nr_gc_trigger_threshold)
-	{
-		return 1;
-	}
-
-
-	/* invoke gc when there is only one dirty block (for debugging) */
-	/*
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	if (bdbm_abm_get_nr_dirty_blocks (p->bai) > 1) {
-		return 1;
-	}
-	*/
-
-	return 0;
-}
-
-/* VICTIM SELECTION - First Selection:
- * select the first dirty block in a list */
-bdbm_abm_block_t* __bdbm_page_ftl_victim_selection (
-	bdbm_drv_info_t* bdi,
-	uint64_t channel_no,
-	uint64_t chip_no)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_abm_block_t* a = NULL;
-	bdbm_abm_block_t* b = NULL;
-	struct list_head* pos = NULL;
-
-	a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
-	bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) {
-		b = bdbm_abm_fetch_dirty_block (pos);
-		if (a != b)
-			break;
-		b = NULL;
-	}
-
-	return b;
-}
-
-/* VICTIM SELECTION - Greedy:
- * select a dirty block with a small number of valid pages */
-bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
-	bdbm_drv_info_t* bdi,
-	uint64_t channel_no,
-	uint64_t chip_no)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_abm_block_t* a = NULL;
-	bdbm_abm_block_t* b = NULL;
-	bdbm_abm_block_t* v = NULL;
-	bdbm_abm_block_t* d = NULL;
-	struct list_head* pos = NULL;
-
-	uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
-
-	a = p->ac_bab[unit];
-	d = p->gc_dst_bab[0][unit];
-
-	bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) 
-	{
-		b = bdbm_abm_fetch_dirty_block (pos);
-
-		// check with active block or dst..
-		bdbm_bug_on(a == b);
-		bdbm_bug_on(a == d);
-		
-		if (b->nr_invalid_subpages == np->nr_subpages_per_block) 
-		{
-			v = b;
-			break;
-		}
-		
-		if (v == NULL) {
-			v = b;
-			continue;
-		}
-		
-		if (b->nr_invalid_subpages > v->nr_invalid_subpages)
-			v = b;
-	}
-
-	return v;
-}
-
-/* TODO: need to improve it for background gc */
-#if 0
-uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm;
-	uint64_t nr_gc_blks = 0;
-	uint64_t nr_llm_reqs = 0;
-	uint64_t nr_punits = 0;
-	uint64_t i, j, k;
-	bdbm_stopwatch_t sw;
-
-	nr_punits = np->nr_channels * np->nr_chips_per_channel;
-
-	/* choose uvictim blocks for individual parallel units */
-	bdbm_memset (p->gc_bab, 0x00, sizeof (bdbm_abm_block_t*) * nr_punits);
-	bdbm_stopwatch_start (&sw);
-	for (i = 0, nr_gc_blks = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
-			bdbm_abm_block_t* b; 
-			if ((b = __bdbm_page_ftl_victim_selection_greedy (bdi, i, j))) {
-				p->gc_bab[nr_gc_blks] = b;
-				nr_gc_blks++;
+		/* make them invalid */
+		for (loop = lpa; loop < (lpa + len); loop++) {
+			me = &p->ptr_mapping_table[loop];
+			if (me->status == PFTL_PAGE_VALID) {
+				bdbm_abm_invalidate_page (
+					p->bai, 
+					me->phyaddr.channel_no, 
+					me->phyaddr.chip_no,
+					me->phyaddr.block_no,
+					me->phyaddr.page_no,
+					me->sp_off
+				);
+				me->status = PFTL_PAGE_INVALID;
 			}
 		}
-	}
-	if (nr_gc_blks < nr_punits) {
-		/* TODO: we need to implement a load balancing feature to avoid this */
-		/*bdbm_warning ("TODO: this warning will be removed with load-balancing");*/
+
 		return 0;
 	}
 
-	/* build hlm_req_gc for reads */
-	for (i = 0, nr_llm_reqs = 0; i < nr_gc_blks; i++) {
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		if (b == NULL)
-			break;
-		for (j = 0; j < np->nr_pages_per_block; j++) {
-			bdbm_llm_req_t* r = &hlm_gc->llm_reqs[nr_llm_reqs];
-			int has_valid = 0;
-			/* are there any valid subpages in a block */
-			hlm_reqs_pool_reset_fmain (&r->fmain);
-			hlm_reqs_pool_reset_logaddr (&r->logaddr);
-			for (k = 0; k < np->nr_subpages_per_page; k++) {
-				if (b->pst[j*np->nr_subpages_per_page+k] != BDBM_ABM_SUBPAGE_INVALID) {
-					has_valid = 1;
-					r->logaddr.lpa[k] = -1; /* the subpage contains new data */
-					r->fmain.kp_stt[k] = KP_STT_DATA;
-				} else {
-					r->logaddr.lpa[k] = -1;	/* the subpage contains obsolate data */
-					r->fmain.kp_stt[k] = KP_STT_HOLE;
+	uint8_t bdbm_page_ftl_is_gc_needed (bdbm_drv_info_t* bdi, int64_t lpa)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		uint64_t nr_free_blks = bdbm_abm_get_nr_free_blocks (p->bai);
+
+		/* invoke gc when remaining free blocks are less than 1% of total blocks */
+		if (nr_free_blks < p->bai->nr_gc_trigger_threshold)
+		{
+			return 1;
+		}
+
+
+		/* invoke gc when there is only one dirty block (for debugging) */
+		/*
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		if (bdbm_abm_get_nr_dirty_blocks (p->bai) > 1) {
+			return 1;
+		}
+		*/
+
+		return 0;
+	}
+
+	/* VICTIM SELECTION - First Selection:
+	 * select the first dirty block in a list */
+	bdbm_abm_block_t* __bdbm_page_ftl_victim_selection (
+		bdbm_drv_info_t* bdi,
+		uint64_t channel_no,
+		uint64_t chip_no)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_abm_block_t* a = NULL;
+		bdbm_abm_block_t* b = NULL;
+		struct list_head* pos = NULL;
+
+		a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
+		bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) {
+			b = bdbm_abm_fetch_dirty_block (pos);
+			if (a != b)
+				break;
+			b = NULL;
+		}
+
+		return b;
+	}
+
+	/* VICTIM SELECTION - Greedy:
+	 * select a dirty block with a small number of valid pages */
+	bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
+		bdbm_drv_info_t* bdi,
+		uint64_t channel_no,
+		uint64_t chip_no)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_abm_block_t* a = NULL;
+		bdbm_abm_block_t* b = NULL;
+		bdbm_abm_block_t* v = NULL;
+		bdbm_abm_block_t* d = NULL;
+		struct list_head* pos = NULL;
+
+		uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
+
+		a = p->ac_bab[unit];
+		d = p->gc_dst_bab[0][unit];
+
+		bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) 
+		{
+			b = bdbm_abm_fetch_dirty_block (pos);
+
+			// check with active block or dst..
+			bdbm_bug_on(a == b);
+			bdbm_bug_on(a == d);
+			
+			if (b->nr_invalid_subpages == np->nr_subpages_per_block) 
+			{
+				v = b;
+				break;
+			}
+			
+			if (v == NULL) {
+				v = b;
+				continue;
+			}
+			
+			if (b->nr_invalid_subpages > v->nr_invalid_subpages)
+				v = b;
+		}
+
+		return v;
+	}
+
+	/* TODO: need to improve it for background gc */
+#if 0
+	uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm;
+		uint64_t nr_gc_blks = 0;
+		uint64_t nr_llm_reqs = 0;
+		uint64_t nr_punits = 0;
+		uint64_t i, j, k;
+		bdbm_stopwatch_t sw;
+
+		nr_punits = np->nr_channels * np->nr_chips_per_channel;
+
+		/* choose uvictim blocks for individual parallel units */
+		bdbm_memset (p->gc_bab, 0x00, sizeof (bdbm_abm_block_t*) * nr_punits);
+		bdbm_stopwatch_start (&sw);
+		for (i = 0, nr_gc_blks = 0; i < np->nr_channels; i++) {
+			for (j = 0; j < np->nr_chips_per_channel; j++) {
+				bdbm_abm_block_t* b; 
+				if ((b = __bdbm_page_ftl_victim_selection_greedy (bdi, i, j))) {
+					p->gc_bab[nr_gc_blks] = b;
+					nr_gc_blks++;
 				}
 			}
-			/* if it is, selects it as the gc candidates */
-			if (has_valid) {
-				r->req_type = REQTYPE_GC_READ;
-				r->phyaddr.channel_no = b->channel_no;
-				r->phyaddr.chip_no = b->chip_no;
-				r->phyaddr.block_no = b->block_no;
-				r->phyaddr.page_no = j;
-				r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
-				r->ptr_hlm_req = (void*)hlm_gc;
-				r->ret = 0;
-				nr_llm_reqs++;
-			}
 		}
-	}
-
-	/*
-	bdbm_msg ("----------------------------------------------");
-	bdbm_msg ("gc-victim: %llu pages, %llu blocks, %llu us", 
-		nr_llm_reqs, nr_gc_blks, bdbm_stopwatch_get_elapsed_time_us (&sw));
-	*/
-
-	/* wait until Q in llm becomes empty 
-	 * TODO: it might be possible to further optimize this */
-	bdi->ptr_llm_inf->flush (bdi);
-
-	if (nr_llm_reqs == 0) 
-		goto erase_blks;
-
-	/* send read reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_READ;
-	hlm_gc->nr_llm_reqs = nr_llm_reqs;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_llm_reqs; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* build hlm_req_gc for writes */
-	for (i = 0; i < nr_llm_reqs; i++) {
-		bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
-		r->req_type = REQTYPE_GC_WRITE;	/* change to write */
-		for (k = 0; k < np->nr_subpages_per_page; k++) {
-			/* move subpages that contain new data */
-			if (r->fmain.kp_stt[k] == KP_STT_DATA) {
-				r->logaddr.lpa[k] = ((uint64_t*)r->foob.data)[k];
-			} else if (r->fmain.kp_stt[k] == KP_STT_HOLE) {
-				((uint64_t*)r->foob.data)[k] = -1;
-				r->logaddr.lpa[k] = -1;
-			} else {
-				bdbm_bug_on (1);
-			}
-		}
-		if (bdbm_page_ftl_get_free_ppa (bdi, &r->phyaddr) != 0) {
-			bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
-			bdbm_bug_on (1);
-		}
-		if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &r->logaddr, &r->phyaddr) != 0) {
-			bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
-			bdbm_bug_on (1);
-		}
-	}
-
-	/* send write reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_WRITE;
-	hlm_gc->nr_llm_reqs = nr_llm_reqs;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_llm_reqs; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* erase blocks */
-erase_blks:
-	for (i = 0; i < nr_gc_blks; i++) {
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
-		r->req_type = REQTYPE_GC_ERASE;
-		r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
-		r->phyaddr.channel_no = b->channel_no;
-		r->phyaddr.chip_no = b->chip_no;
-		r->phyaddr.block_no = b->block_no;
-		r->phyaddr.page_no = 0;
-		r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
-		r->ptr_hlm_req = (void*)hlm_gc;
-		r->ret = 0;
-	}
-
-	/* send erase reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_ERASE;
-	hlm_gc->nr_llm_reqs = p->nr_punits;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_gc_blks; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* FIXME: what happens if block erasure fails */
-	for (i = 0; i < nr_gc_blks; i++) {
-		uint8_t ret = 0;
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		if (hlm_gc->llm_reqs[i].ret != 0) 
-			ret = 1;	/* bad block */
-		bdbm_abm_erase_block (p->bai, b->channel_no, b->chip_no, b->block_no, ret);
-	}
-
-	return 0;
-}
-#endif
-
-void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for readi
-	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
-
-	uint64_t ch, way, unit;
-	bdbm_llm_req_t* req;
-	bdbm_abm_block_t* src_blk;
-
-	for (unit = 0; unit < p->nr_punits; unit++)
-	{
-		src_blk = p->gc_src_bab[unit]; 
-
-		// 1. Erase and Restore
-		if (src_blk != NULL)
-		{
-			uint64_t erase_req_idx = p->nr_punits*2 + unit;
-
-			if (src_blk->nr_invalid_subpages != np->nr_subpages_per_block)
-			{
-				bdbm_msg("%lld, %lld",unit,src_blk->nr_invalid_subpages);  
-				bdbm_bug_on(1);
-			}
-				
-			// src is already invalided.
-			req = &hlm_gc->llm_reqs[erase_req_idx];
-			req->req_type = REQTYPE_GC_ERASE;
-			req->logaddr.lpa[0] = 0x7FFFFFFE - unit; /* lpa is not available now */
-			req->phyaddr.channel_no = src_blk->channel_no;
-			req->phyaddr.chip_no = src_blk->chip_no;
-			req->phyaddr.block_no = src_blk->block_no;
-			req->phyaddr.page_no = 0;
-			req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
-			req->ptr_hlm_req = (void*)hlm_gc;
-			req->ret = 0;
-		
-			/* send erase reqs to llm */
-			hlm_gc->req_type = REQTYPE_GC_ERASE;
-			hlm_gc->nr_llm_reqs++; // Need to care Erase case ?
-			
-			if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) {
-				bdbm_error ("llm_make_req failed");
-				bdbm_bug_on (1);
-			}
-
-			bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->chip_no, src_blk->block_no, /*is bad*/ 0);
-
-			// adjust blck page offset.
-			p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
-			p->gc_src_bab[unit] = NULL;
-			src_blk = NULL;
-		}
-
-		// 2. Alloc New Src
-		bdbm_bug_on(p->gc_src_blk_offs[unit] != np->nr_pages_per_block);
-		
-		ch = unit / np->nr_chips_per_channel;
-		way = unit % np->nr_chips_per_channel; 
-
-		if (p->bai->anr_free_blks[ch][way] > GC_THRESHOLD)
-		{
-			// we already have enough free blocks, so don't need to do gc.
-			continue;
-		}
-
-		// choose victim blocks - new src block
-		if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
-		{
-			p->gc_src_bab[unit] = src_blk;
-			p->gc_src_blk_offs[unit] = 0;
-
-			if (src_blk->nr_invalid_subpages == np->nr_pages_per_block)
-			{
-				p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
-			}
-
-			p->total_write_count[unit] += np->nr_pages_per_block;
-			p->invald_page_count[unit] += src_blk->nr_invalid_subpages;
-
-			p->src_valid_page_count += (np->nr_pages_per_block - src_blk->nr_invalid_subpages);
-		}
-	}
-
-	bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
-}
-
-
-uint32_t bdbm_page_ftl_gc_read_state_default(bdbm_drv_info_t* bdi)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
-	uint64_t page, subPage; 
-	uint64_t unit;
-	bdbm_llm_req_t* req;
-	uint64_t average_valid;
-	
-	uint8_t	src_read_count[64] = {0,};
-
-	uint64_t valid_page = 0;
-
-//	bdbm_msg("	read page : %lld", p->src_valid_page_count); 
-
-	// 1. Check Src Validity
-	if (p->src_valid_page_count == 0)
-	{
-		bdbm_page_ftl_alloc_srcblk(bdi);
-
-		if (p->src_valid_page_count == 0)
-		{	
-			// don't need to do gc. sufficient free block.
+		if (nr_gc_blks < nr_punits) {
+			/* TODO: we need to implement a load balancing feature to avoid this */
+			/*bdbm_warning ("TODO: this warning will be removed with load-balancing");*/
 			return 0;
 		}
 
+		/* build hlm_req_gc for reads */
+		for (i = 0, nr_llm_reqs = 0; i < nr_gc_blks; i++) {
+			bdbm_abm_block_t* b = p->gc_bab[i];
+			if (b == NULL)
+				break;
+			for (j = 0; j < np->nr_pages_per_block; j++) {
+				bdbm_llm_req_t* r = &hlm_gc->llm_reqs[nr_llm_reqs];
+				int has_valid = 0;
+				/* are there any valid subpages in a block */
+				hlm_reqs_pool_reset_fmain (&r->fmain);
+				hlm_reqs_pool_reset_logaddr (&r->logaddr);
+				for (k = 0; k < np->nr_subpages_per_page; k++) {
+					if (b->pst[j*np->nr_subpages_per_page+k] != BDBM_ABM_SUBPAGE_INVALID) {
+						has_valid = 1;
+						r->logaddr.lpa[k] = -1; /* the subpage contains new data */
+						r->fmain.kp_stt[k] = KP_STT_DATA;
+					} else {
+						r->logaddr.lpa[k] = -1;	/* the subpage contains obsolate data */
+						r->fmain.kp_stt[k] = KP_STT_HOLE;
+					}
+				}
+				/* if it is, selects it as the gc candidates */
+				if (has_valid) {
+					r->req_type = REQTYPE_GC_READ;
+					r->phyaddr.channel_no = b->channel_no;
+					r->phyaddr.chip_no = b->chip_no;
+					r->phyaddr.block_no = b->block_no;
+					r->phyaddr.page_no = j;
+					r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
+					r->ptr_hlm_req = (void*)hlm_gc;
+					r->ret = 0;
+					nr_llm_reqs++;
+				}
+			}
+		}
+
+		/*
+		bdbm_msg ("----------------------------------------------");
+		bdbm_msg ("gc-victim: %llu pages, %llu blocks, %llu us", 
+			nr_llm_reqs, nr_gc_blks, bdbm_stopwatch_get_elapsed_time_us (&sw));
+		*/
+
+		/* wait until Q in llm becomes empty 
+		 * TODO: it might be possible to further optimize this */
+		bdi->ptr_llm_inf->flush (bdi);
+
+		if (nr_llm_reqs == 0) 
+			goto erase_blks;
+
+		/* send read reqs to llm */
+		hlm_gc->req_type = REQTYPE_GC_READ;
+		hlm_gc->nr_llm_reqs = nr_llm_reqs;
+		atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
+		bdbm_sema_lock (&hlm_gc->done);
+		for (i = 0; i < nr_llm_reqs; i++) {
+			if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
+				bdbm_error ("llm_make_req failed");
+				bdbm_bug_on (1);
+			}
+		}
+		bdbm_sema_lock (&hlm_gc->done);
+		bdbm_sema_unlock (&hlm_gc->done);
+
+		/* build hlm_req_gc for writes */
+		for (i = 0; i < nr_llm_reqs; i++) {
+			bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
+			r->req_type = REQTYPE_GC_WRITE;	/* change to write */
+			for (k = 0; k < np->nr_subpages_per_page; k++) {
+				/* move subpages that contain new data */
+				if (r->fmain.kp_stt[k] == KP_STT_DATA) {
+					r->logaddr.lpa[k] = ((uint64_t*)r->foob.data)[k];
+				} else if (r->fmain.kp_stt[k] == KP_STT_HOLE) {
+					((uint64_t*)r->foob.data)[k] = -1;
+					r->logaddr.lpa[k] = -1;
+				} else {
+					bdbm_bug_on (1);
+				}
+			}
+			if (bdbm_page_ftl_get_free_ppa (bdi, &r->phyaddr) != 0) {
+				bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
+				bdbm_bug_on (1);
+			}
+			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &r->logaddr, &r->phyaddr) != 0) {
+				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
+				bdbm_bug_on (1);
+			}
+		}
+
+		/* send write reqs to llm */
+		hlm_gc->req_type = REQTYPE_GC_WRITE;
+		hlm_gc->nr_llm_reqs = nr_llm_reqs;
+		atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
+		bdbm_sema_lock (&hlm_gc->done);
+		for (i = 0; i < nr_llm_reqs; i++) {
+			if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
+				bdbm_error ("llm_make_req failed");
+				bdbm_bug_on (1);
+			}
+		}
+		bdbm_sema_lock (&hlm_gc->done);
+		bdbm_sema_unlock (&hlm_gc->done);
+
+		/* erase blocks */
+	erase_blks:
+		for (i = 0; i < nr_gc_blks; i++) {
+			bdbm_abm_block_t* b = p->gc_bab[i];
+			bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
+			r->req_type = REQTYPE_GC_ERASE;
+			r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
+			r->phyaddr.channel_no = b->channel_no;
+			r->phyaddr.chip_no = b->chip_no;
+			r->phyaddr.block_no = b->block_no;
+			r->phyaddr.page_no = 0;
+			r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
+			r->ptr_hlm_req = (void*)hlm_gc;
+			r->ret = 0;
+		}
+
+		/* send erase reqs to llm */
+		hlm_gc->req_type = REQTYPE_GC_ERASE;
+		hlm_gc->nr_llm_reqs = p->nr_punits;
+		atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
+		bdbm_sema_lock (&hlm_gc->done);
+		for (i = 0; i < nr_gc_blks; i++) {
+			if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
+				bdbm_error ("llm_make_req failed");
+				bdbm_bug_on (1);
+			}
+		}
+		bdbm_sema_lock (&hlm_gc->done);
+		bdbm_sema_unlock (&hlm_gc->done);
+
+		/* FIXME: what happens if block erasure fails */
+		for (i = 0; i < nr_gc_blks; i++) {
+			uint8_t ret = 0;
+			bdbm_abm_block_t* b = p->gc_bab[i];
+			if (hlm_gc->llm_reqs[i].ret != 0) 
+				ret = 1;	/* bad block */
+			bdbm_abm_erase_block (p->bai, b->channel_no, b->chip_no, b->block_no, ret);
+		}
+
+		return 0;
 	}
+#endif
 
-	average_valid = (p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits;
 
-	// 2. read nr_punits page
-	for (unit = 0; unit < p->nr_punits; unit++)
+	void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
 	{
-		uint64_t src_unit;
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for readi
+		uint64_t unit;
+		bdbm_llm_req_t* req;
 		bdbm_abm_block_t* src_blk;
 
-		uint64_t idx = 0;
-		uint64_t valid_page_count;
+		for (unit = 0; unit < p->nr_punits; unit++)
+		{
+			src_blk = p->gc_src_bab[unit]; 
 
-		src_blk = p->gc_src_bab[unit];
-		valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[unit]);	// 6.61%
- 
-		if ((valid_page_count != 0) && (valid_page_count+1 >= average_valid))
-		{
-			src_unit = unit;
-			p->src_unit_idx[unit] = src_unit;
-			src_read_count[src_unit]++;
-		}
-		else
-		{
-			// read from other NAND.
-			for (idx = 0; idx < p->nr_punits; idx++)
+			// 1. Erase and Restore
+			if (src_blk != NULL)
 			{
-				src_unit = p->src_hand + idx;
-				if (src_unit >= p->nr_punits)
+				uint64_t erase_req_idx = p->nr_punits*2 + unit;
+
+				if (src_blk->nr_invalid_subpages != np->nr_subpages_per_block)
 				{
-					src_unit -= p->nr_punits;
+					bdbm_msg("%lld, %lld",unit,src_blk->nr_invalid_subpages);  
+					bdbm_bug_on(1);
+				}
+					
+				// src is already invalided.
+				req = &hlm_gc->llm_reqs[erase_req_idx];
+				req->req_type = REQTYPE_GC_ERASE;
+				req->logaddr.lpa[0] = 0x7FFFFFFE - unit; /* lpa is not available now */
+				req->phyaddr.channel_no = src_blk->channel_no;
+				req->phyaddr.chip_no = src_blk->chip_no;
+				req->phyaddr.block_no = src_blk->block_no;
+				req->phyaddr.page_no = 0;
+				req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
+				req->ptr_hlm_req = (void*)hlm_gc;
+				req->ret = 0;
+			
+				/* send erase reqs to llm */
+				hlm_gc->req_type = REQTYPE_GC_ERASE;
+				hlm_gc->nr_llm_reqs++; // Need to care Erase case ?
+				
+				if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) {
+					bdbm_error ("llm_make_req failed");
+					bdbm_bug_on (1);
 				}
 
-				src_blk = p->gc_src_bab[src_unit];
+				bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->chip_no, src_blk->block_no, /*is bad*/ 0);
 
-				//if ((src_blk->nr_invalid_subpages + src_read_count[src_unit]) != np->nr_pages_per_block) // default 8.3%
-				//if (np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]) >= average_valid) // 7.11%
-				valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]);	// 6.61% 
-				if ((valid_page_count > average_valid) || ((valid_page_count == average_valid) && (src_unit < unit)))
+				p->block_info[src_blk->copy_count]--;
+
+				// adjust blck page offset.
+				p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
+				p->gc_src_bab[unit] = NULL;
+				src_blk = NULL;
+			}
+		}
+	}
+
+	void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for readi
+		bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
+
+		uint64_t ch, way, unit;
+		bdbm_abm_block_t* src_blk;
+
+		for (unit = 0; unit < p->nr_punits; unit++)
+		{
+			src_blk = p->gc_src_bab[unit]; 
+
+			// 2. Alloc New Src
+			bdbm_bug_on(p->gc_src_blk_offs[unit] != np->nr_pages_per_block);
+			
+			ch = unit / np->nr_chips_per_channel;
+			way = unit % np->nr_chips_per_channel; 
+			
+			if (p->bai->nr_free_blks > p->bai->nr_gc_trigger_threshold)
+			{
+				// we already have enough free blocks, so don't need to do gc.
+				continue;
+			}
+
+			// choose victim blocks - new src block
+			if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
+			{
+				p->gc_src_bab[unit] = src_blk;
+				p->gc_src_blk_offs[unit] = 0;
+
+				if (src_blk->nr_invalid_subpages == np->nr_pages_per_block)
 				{
-					p->src_hand = src_unit + 1;
-					p->src_unit_idx[unit] = src_unit;
-					src_read_count[src_unit]++;
+					p->gc_src_blk_offs[unit] = np->nr_pages_per_block;
+				}
+
+				p->total_write_count[unit] += np->nr_pages_per_block;
+				p->invald_page_count[unit] += src_blk->nr_invalid_subpages;
+
+				p->src_valid_page_count += (np->nr_pages_per_block - src_blk->nr_invalid_subpages);
+			}
+		}
+
+		bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
+	}
+
+
+	uint32_t bdbm_page_ftl_gc_read_state_default(bdbm_drv_info_t* bdi)
+	{
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
+		uint64_t page, subPage; 
+		uint64_t unit;
+		bdbm_llm_req_t* req;
+		uint64_t average_valid;
+		
+		uint8_t	src_read_count[64] = {0,};
+
+	//	bdbm_msg("	read page : %lld", p->src_valid_page_count); 
+
+		// 1. Check Src Validity
+		if (p->src_valid_page_count == 0)
+		{
+			bdbm_page_ftl_restore_srcblk(bdi);
+			bdbm_page_ftl_alloc_srcblk(bdi);
+
+			if (p->src_valid_page_count == 0)
+			{	
+				// don't need to do gc. sufficient free block.
+				return 0;
+			}
+
+		}
+
+		average_valid = (p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits;
+
+		// 2. read nr_punits page
+		for (unit = 0; unit < p->nr_punits; unit++)
+		{
+			uint64_t src_unit;
+			bdbm_abm_block_t* src_blk;
+
+			uint64_t idx = 0;
+			uint64_t valid_page_count;
+			uint64_t read_dma = 1; // need to execute DMA from NAND.
+
+			src_blk = p->gc_src_bab[unit];
+
+			valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[unit]);	// 6.61%
+	 
+			if ((valid_page_count != 0) && (valid_page_count+1 >= average_valid))
+			{
+				src_unit = unit;
+				p->src_unit_idx[unit] = src_unit;
+				src_read_count[src_unit]++;
+
+				if (src_blk->copy_count+1 < MAX_COPY_BACK)
+				{
+					read_dma = 0; // utilize internal copyback
+				}
+			}
+			else
+			{
+				// read from other NAND.
+				for (idx = 0; idx < p->nr_punits; idx++)
+				{
+					src_unit = p->src_hand + idx;
+					if (src_unit >= p->nr_punits)
+					{
+						src_unit -= p->nr_punits;
+					}
+
+					src_blk = p->gc_src_bab[src_unit];
+
+					//if ((src_blk->nr_invalid_subpages + src_read_count[src_unit]) != np->nr_pages_per_block) // default 8.3%
+					//if (np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]) >= average_valid) // 7.11%
+					valid_page_count = np->nr_pages_per_block - (src_blk->nr_invalid_subpages + src_read_count[src_unit]);	// 6.61% 
+					if ((valid_page_count > average_valid) || ((valid_page_count == average_valid) && (src_unit < unit)))
+					{
+						p->src_hand = src_unit + 1;
+						p->src_unit_idx[unit] = src_unit;
+						src_read_count[src_unit]++;
+
+						break;
+					}
+				}
+			}
+		
+			req = &hlm_gc->llm_reqs[unit];
+
+			hlm_reqs_pool_reset_fmain (&req->fmain);
+			hlm_reqs_pool_reset_logaddr (&req ->logaddr);
+
+			if (idx == p->nr_punits)
+			{
+				continue;
+			}
+		
+			if (unit != src_unit)
+			{
+				p->external_copy_count++;
+			}
+
+			for (page = p->gc_src_blk_offs[src_unit]; page < np->nr_pages_per_block; page++) 
+			{
+				int has_valid = 0;
+				/* are there any valid subpages in a block */
+				for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
+				{
+					if (src_blk->pst[page*np->nr_subpages_per_page+subPage] != BDBM_ABM_SUBPAGE_INVALID) 
+					{
+						has_valid = 1;
+						req->logaddr.lpa[subPage] = -1; /* the subpage contains new data */
+						req->fmain.kp_stt[subPage] = KP_STT_DATA;
+					} 
+					else 
+					{
+						req->logaddr.lpa[subPage] = -1; /* the subpage contains obsolate data */
+						req->fmain.kp_stt[subPage] = KP_STT_HOLE;
+					}
+				}
+				
+				/* if it is, selects it as the gc candidates */
+				if (has_valid) 
+				{
+					req->req_type = REQTYPE_GC_READ;
+					req->dma = read_dma; // 0 - DMA bypass, 1 - DMA
+					req->phyaddr.channel_no = src_blk->channel_no;
+					req->phyaddr.chip_no = src_blk->chip_no;
+					req->phyaddr.block_no = src_blk->block_no;
+					req->phyaddr.page_no = page;
+					req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
+					req->ptr_hlm_req = (void*)hlm_gc;
+					req->ret = 0;
+
+					p->gc_src_blk_offs[src_unit] = page+1; // update next check point
+
+					/* send read reqs to llm */
+					hlm_gc->req_type = REQTYPE_GC_READ;
+					hlm_gc->nr_llm_reqs++;
+
+					if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) 
+					{
+						bdbm_error ("llm_make_req failed");
+						bdbm_bug_on (1);
+					}
 
 					break;
 				}
 			}
 		}
-	
-		req = &hlm_gc->llm_reqs[unit];
 
-		hlm_reqs_pool_reset_fmain (&req->fmain);
-		hlm_reqs_pool_reset_logaddr (&req ->logaddr);
-
-		if (idx == p->nr_punits)
-		{
-			continue;
-		}
-	
-		if (unit != src_unit)
-		{
-			p->external_copy_count++;
-		}
-	
-		for (page = p->gc_src_blk_offs[src_unit]; page < np->nr_pages_per_block; page++) 
-		{
-			int has_valid = 0;
-			/* are there any valid subpages in a block */
-			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
-			{
-				if (src_blk->pst[page*np->nr_subpages_per_page+subPage] != BDBM_ABM_SUBPAGE_INVALID) 
-				{
-					has_valid = 1;
-					req->logaddr.lpa[subPage] = -1; /* the subpage contains new data */
-					req->fmain.kp_stt[subPage] = KP_STT_DATA;
-				} 
-				else 
-				{
-					req->logaddr.lpa[subPage] = -1; /* the subpage contains obsolate data */
-					req->fmain.kp_stt[subPage] = KP_STT_HOLE;
-				}
-			}
-			
-			/* if it is, selects it as the gc candidates */
-			if (has_valid) 
-			{
-				req->req_type = REQTYPE_GC_READ;
-				req->phyaddr.channel_no = src_blk->channel_no;
-				req->phyaddr.chip_no = src_blk->chip_no;
-				req->phyaddr.block_no = src_blk->block_no;
-				req->phyaddr.page_no = page;
-				req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
-				req->ptr_hlm_req = (void*)hlm_gc;
-				req->ret = 0;
-
-				p->gc_src_blk_offs[src_unit] = page+1; // update next check point
-
-				/* send read reqs to llm */
-				hlm_gc->req_type = REQTYPE_GC_READ;
-				hlm_gc->nr_llm_reqs++;
-
-				if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) 
-				{
-					bdbm_error ("llm_make_req failed");
-					bdbm_bug_on (1);
-				}
-
-				break;
-			}
-		}
+		return 1;
 	}
 
-	return 1;
-}
 
-
-uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
-	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
-	uint64_t ch, way, subPage, unit;
-	bdbm_llm_req_t* req = NULL;
-	bdbm_abm_block_t* src_blk = NULL;
-
-	// copy information from read to write hlm...
-	hlm_reqs_pool_copy (hlm_gc_w, hlm_gc, np, p->dst_offset);
-
-	for (way = 0; way < np->nr_chips_per_channel; way++)
+	uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 	{
-		for (ch = 0; ch < np->nr_channels; ch++)
+		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+		bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
+		bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
+		uint64_t ch, way, subPage, unit;
+		bdbm_llm_req_t* req = NULL;
+		bdbm_abm_block_t* src_blk = NULL;
+
+		// copy information from read to write hlm...
+		hlm_reqs_pool_copy (hlm_gc_w, hlm_gc, np, p->dst_offset);
+
+		for (way = 0; way < np->nr_chips_per_channel; way++)
 		{
-			uint64_t src_unit;
-			uint64_t write_bypass = 1; 
-			uint64_t dst_index = 0; // default			
-			
-			unit = ch * np->nr_chips_per_channel + way;
-			src_unit = p->src_unit_idx[unit];	
-			src_blk = p->gc_src_bab[src_unit];
-
-			// using. src->copy_count info, src/dst plane information.
-			if (unit == src_unit)
+			for (ch = 0; ch < np->nr_channels; ch++)
 			{
-				dst_index = src_blk->copy_count + 1;
-				if (dst_index > MAX_COPY_BACK)
-				{
-					dst_index = 0;
-					p->refresh_copy_count++;
-				}
-				else
-				{
-					p->internal_copy_count++;
-				}
-			}
+				uint64_t src_unit;
+				uint64_t write_bypass = 1; 
+				uint64_t dst_index = 0; // default			
+				uint64_t write_dma = 1; // need to execute DMA to NAND.		
+		
+				unit = ch * np->nr_chips_per_channel + way;
+				src_unit = p->src_unit_idx[unit];	
+				src_blk = p->gc_src_bab[src_unit];
 
-			// Write page
-			/* build hlm_req_gc for writes */
-			req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
-			req->req_type = REQTYPE_GC_WRITE; /* change to write */
-			
-			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
-			{
-				/* move subpages that contain new data */
-				if (req->fmain.kp_stt[subPage] == KP_STT_DATA) 
+				// using. src->copy_count info, src/dst plane information.
+				if (unit == src_unit)
 				{
-					bdbm_phyaddr_t phyaddr; 
-					uint64_t sp_offs;					
-
-					req->logaddr.lpa[subPage] = ((uint64_t*)req->foob.data)[subPage];
-
-					bdbm_page_ftl_get_ppa(bdi, req->logaddr.lpa[subPage],&phyaddr,&sp_offs); // previous map check for overwrite during G.C
-					if ( (phyaddr.block_no == src_blk->block_no) && (phyaddr.channel_no == src_blk->channel_no) && (phyaddr.chip_no == src_blk->chip_no))
+					dst_index = src_blk->copy_count + 1;
+					if (dst_index < MAX_COPY_BACK)
 					{
-						write_bypass = 0; // TODO>. VALID check
-					} 
+						p->internal_copy_count++;
+						write_dma = 0; // utilize internal copyback
+					}
 					else
 					{
-						bdbm_msg (" Host Update during G.C");
-						bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->info);
+						dst_index = 0;
+						p->refresh_copy_count++;
+					}
+				}
+
+				// Write page
+				/* build hlm_req_gc for writes */
+				req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
+				req->req_type = REQTYPE_GC_WRITE; /* change to write */
+				req->dma = write_dma;			
+
+				for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
+				{
+					/* move subpages that contain new data */
+					if (req->fmain.kp_stt[subPage] == KP_STT_DATA) 
+					{
+						bdbm_phyaddr_t phyaddr; 
+						uint64_t sp_offs;					
+
+						req->logaddr.lpa[subPage] = ((uint64_t*)req->foob.data)[subPage];
+
+						bdbm_page_ftl_get_ppa(bdi, req->logaddr.lpa[subPage],&phyaddr,&sp_offs); // previous map check for overwrite during G.C
+						if ( (phyaddr.block_no == src_blk->block_no) && (phyaddr.channel_no == src_blk->channel_no) && (phyaddr.chip_no == src_blk->chip_no))
+						{
+							write_bypass = 0; // TODO>. VALID check
+						} 
+						else
+						{
+							bdbm_msg (" Host Update during G.C");
+							bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->info);
 						bdbm_msg (" 			new ch: %lld,%lld,%lld, page: %lld", phyaddr.channel_no, phyaddr.chip_no, phyaddr.block_no, phyaddr.page_no);
 
 						bdbm_page_ftl_print_blocks(bdi);

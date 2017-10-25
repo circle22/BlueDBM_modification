@@ -47,11 +47,11 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 	//NAND_PAGE_OOB_SIZE = 64, /* for bdbm hardware */
 	NAND_PAGE_OOB_SIZE = 8*BDBM_MAX_PAGES,
 	NR_PAGES_PER_BLOCK = 128,
-	NR_BLOCKS_PER_CHIP = 300, //2300 , // 192/BDBM_MAX_PAGES,
+	NR_BLOCKS_PER_CHIP = 600, //2300 , // 192/BDBM_MAX_PAGES,
 	//NR_BLOCKS_PER_CHIP = 8/BDBM_MAX_PAGES,
-	NR_CHIPS_PER_CHANNEL = 1,
+	NR_CHIPS_PER_CHANNEL = 4,
 	//NR_CHIPS_PER_CHANNEL = 8,
-	NR_CHANNELS = 1,
+	NR_CHANNELS = 8,
 	NAND_HOST_BUS_TRANS_TIME_US = 0,	/* assume to be 0 */
 	NAND_CHIP_BUS_TRANS_TIME_US = 100,	/* 100us */
 	NAND_PAGE_PROG_TIME_US = 500,		/* 1.3ms */	
@@ -137,6 +137,8 @@ bdbm_device_params_t get_default_device_params (void)
 //	p.prog_dma_time_us = 205; //102;
 //	p.gc_read_dma_time_us = 102;	
 
+
+#if 0
 	p.gc_read_dma_time_us[0] = 53;
 	p.gc_read_dma_time_us[1] = 53;
 	p.gc_read_dma_time_us[2] = 53;
@@ -159,6 +161,38 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[6] = 83;
 	p.prog_dma_time_us[7] = 96;
 	p.prog_dma_time_us[8] = 112;
+#else
+	p.gc_read_dma_time_us[0] = 27;
+	p.gc_read_dma_time_us[1] = 27;
+	p.gc_read_dma_time_us[2] = 27;
+	p.gc_read_dma_time_us[3] = 27;
+	p.gc_read_dma_time_us[4] = 29;
+	p.gc_read_dma_time_us[5] = 36;
+	p.gc_read_dma_time_us[6] = 43;
+	p.gc_read_dma_time_us[7] = 49;
+	p.gc_read_dma_time_us[8] = 57;
+
+	p.page_read_time_us = 50;	// tR 50us.
+
+	// 16KB....
+	p.prog_dma_time_us[0] = 27;
+	p.prog_dma_time_us[1] = 27;
+	p.prog_dma_time_us[2] = 27;
+	p.prog_dma_time_us[3] = 27;
+	p.prog_dma_time_us[4] = 29;
+	p.prog_dma_time_us[5] = 36;
+	p.prog_dma_time_us[6] = 43;
+	p.prog_dma_time_us[7] = 49;
+	p.prog_dma_time_us[8] = 57;
+#endif
+
+
+
+
+
+
+
+
 
 #else
  	p.page_prog_time_us = _param_page_prog_time_us;

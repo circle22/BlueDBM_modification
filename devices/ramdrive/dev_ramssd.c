@@ -42,7 +42,7 @@ THE SOFTWARE.
 #include "ufile.h"
 #include "dev_ramssd.h"
 
-#define DATA_CHECK
+//#define DATA_CHECK
 
 #if defined (DATA_CHECK)
 static void* __ptr_ramssd_data = NULL;
@@ -190,7 +190,8 @@ static uint8_t __ramssd_read_page (
 	uint8_t** kp_ptr,
 	uint8_t* oob_data,
 	uint8_t oob,
-	uint8_t partial)
+	uint8_t partial,
+	uint64_t type)
 {
 	uint8_t ret = 0;
 	uint8_t* ptr_ramssd_addr = NULL;
@@ -243,8 +244,10 @@ static uint8_t __ramssd_read_page (
 			if (partial == 1 && kp_stt[loop] == KP_STT_DATA)	continue;
 			ptr_data_org = (uint8_t*)__get_ramssd_data_addr (ri, lpa);
 			if (memcmp (kp_ptr[loop], ptr_data_org+(loop*KPAGE_SIZE), KPAGE_SIZE) != 0) {
-				bdbm_msg ("[DATA CORRUPTION] lpa=%llu offset=%u", lpa, loop);
+				bdbm_msg ("[DATA CORRUPTION] lpa=%llu offset=%u type: %lld", lpa, loop, type);
+				bdbm_msg ("ch: %lld, way: %lld, block =%llu page=%llu", channel_no, chip_no, block_no, page_no);
 				__display_hex_values (kp_ptr[loop], ptr_data_org+(loop*KPAGE_SIZE));
+				//bdbm_bug_on(1);
 			}
 		}
 	} else {
@@ -393,7 +396,8 @@ static uint32_t __ramssd_send_cmd (
 			ptr_req->fmain.kp_ptr,
 			ptr_req->foob.data,
 			use_oob,
-			use_partial);
+			use_partial,
+			ptr_req->req_type);
 		break;
 
 	case REQTYPE_RMW_WRITE:
@@ -431,7 +435,7 @@ static uint32_t __ramssd_send_cmd (
 		break;
 
 	default:
-		bdbm_error ("invalid command");
+		bdbm_error ("invalid command :%lld ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.chip_no);
 		ret = 1;
 		break;
 	}
@@ -504,6 +508,12 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 				}
 
 				check = 1;
+
+				if ( elapsed_time_in_us > 20000)
+				{
+					bdbm_msg("timer elapsed time : %lld, %lld,%lld,", elapsed_time_in_us, channel, way);
+					bdbm_msg("Target_elapese.. : %lld", punit->target_elapsed_time_us);
+				}
 			} else {
 				bdbm_spin_unlock (&ri->ramssd_lock);
 			}
@@ -515,7 +525,7 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 			if (elapsed_time_in_us >= ri->ptr_channels[channel].target_elapsed_time_us)
 			{
 				ri->is_busy[channel] = 0;
-				atomic_dec(&ri->busy_channel);
+				//atomic_dec(&ri->busy_channel);
 			}
 		}
 	}
@@ -723,14 +733,14 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 	if ((ret = __ramssd_send_cmd (ri, r)) == 0) {
 		int64_t target_elapsed_time_us = 0;
 		uint64_t punit_id = r->phyaddr.punit_id;
+		int64_t channel_busy_time = 0;
+		int64_t elapsed_time_in_us = 0;
 
 		/* get the target elapsed time depending on the type of req */
 		if (ri->emul_mode == DEVICE_TYPE_RAMDRIVE_TIMING) {
 			dev_ramssd_channel_t* ptr_channels; 
-			int64_t channel_busy_time;
-			int64_t elapsed_time_in_us;
-
-			uint32_t count = 1;
+			uint64_t count = 0;
+			uint64_t ch;
 
 			switch (r->req_type) {
 			case REQTYPE_WRITE:
@@ -747,28 +757,35 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				if (ri->is_busy[r->phyaddr.channel_no] == 0)
 				{
 					ri->is_busy[r->phyaddr.channel_no] = 1;
-					atomic_inc(&ri->busy_channel);
+					//atomic_inc(&ri->busy_channel);
 				}
 				
+				for (ch = 0; ch < 8; ch++)
+				{
+					if (ri->is_busy[ch] != 0)
+					{
+						count++;
+					}
+				}
+
+				/*
 				count = atomic_read(&ri->busy_channel);
 				if (count > 8)
 				{		
 					bdbm_msg("counting issue happend... %lu\n", count);
 					count = 8;
-				}
+				}*/
 #endif
-				//channel_busy_time = ri->np->prog_dma_time_us;
 				channel_busy_time = ri->np->prog_dma_time_us[count];
-				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
 				
 	//			bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
 
-#ifdef	COPYBACK_SUPPORT
-				if (r->req_type == REQTYPE_GC_WRITE)
+				if ((r->req_type == REQTYPE_GC_WRITE) && (r->dma == 0))
 				{
 					channel_busy_time = 0;
 				}
-#endif	// COPYBACK_SUPPORT
+
+				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ptr_channels->sw));
 				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
 				{	// channel is idle.
@@ -809,28 +826,39 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 
 				if (r->req_type == REQTYPE_GC_READ)
 				{
-#ifdef	COPYBACK_SUPPORT
-					channel_busy_time = 0;
-#else
-
-#ifdef DYNAMIC_DMA
-					// check the channel busy time
-					if (ri->is_busy[r->phyaddr.channel_no] == 0)
+					if (r->dma == 0)
+					{					
+						channel_busy_time = 0;
+					}
+					else
 					{
-						ri->is_busy[r->phyaddr.channel_no] = 1;
-						atomic_inc(&ri->busy_channel);
-					}
-					
-					count = atomic_read(&ri->busy_channel);
-					if ( count > 8)
-					{		
-						bdbm_msg("counting issue happend... %lu\n", count);
-						count = 8;
-					}
-#endif
+#ifdef DYNAMIC_DMA
+						// check the channel busy time
+						if (ri->is_busy[r->phyaddr.channel_no] == 0)
+						{
+							ri->is_busy[r->phyaddr.channel_no] = 1;
+							//atomic_inc(&ri->busy_channel);
+						}
 
-					channel_busy_time = ri->np->gc_read_dma_time_us[count];
-#endif	//COPYBACK_SUPPORT
+						for (ch = 0; ch < 8; ch++)
+						{
+							if (ri->is_busy[ch] != 0)
+							{
+								count++;
+							}
+						}
+
+						/*						
+						count = atomic_read(&ri->busy_channel);
+						if ( count > 8)
+						{		
+							bdbm_msg("counting issue happend... %lu\n", count);
+							count = 8;
+						}*/
+#endif
+						channel_busy_time = ri->np->gc_read_dma_time_us[count];
+					}
+
 				}
 
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
@@ -853,6 +881,9 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				break;
 			case REQTYPE_GC_ERASE:
 				target_elapsed_time_us = ri->np->block_erase_time_us;
+				
+				//bdbm_msg("  Erase: %lld, %lld, %lld", r->phyaddr.channel_no, r->phyaddr.chip_no, target_elapsed_time_us);
+
 				break;
 			case REQTYPE_READ_DUMMY:
 				target_elapsed_time_us = 0;	/* dummy read */
@@ -862,8 +893,9 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				bdbm_bug_on (1);
 				break;
 			}
+
 			if (target_elapsed_time_us > 0) {
-				target_elapsed_time_us -= (target_elapsed_time_us / 10);
+			//	target_elapsed_time_us -= (target_elapsed_time_us / 10);
 			}
 		} 
 		else {
@@ -887,6 +919,12 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 
 		/* register reqs for callback */
 		__ramssd_timing_register_schedule (ri);
+
+		if ( channel_busy_time > 20000)
+		{
+			bdbm_msg("Issue Channel Busy : %lld, unitID: %lld", channel_busy_time, punit_id);
+			bdbm_msg("Target_elapese.. : %lld, type:%lld, %lld", target_elapsed_time_us, r->req_type, elapsed_time_in_us );
+		}
 	}
 
 fail:
