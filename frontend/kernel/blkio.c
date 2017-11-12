@@ -146,8 +146,8 @@ uint32_t blkio_open (bdbm_drv_info_t* bdi)
 
 	if ((p->hlm_reqs_pool = bdbm_hlm_reqs_pool_create (
 			mapping_unit_size,	/* mapping unit */
-			bdi->parm_dev.page_main_size	/* io unit */	
-			)) == NULL) {
+			bdi->parm_dev.page_main_size * bdi->parm_dev.nr_planes	/* io unit */	
+			 )) == NULL) {
 		bdbm_warning ("bdbm_hlm_reqs_pool_create () failed");
 		return 1;
 	}

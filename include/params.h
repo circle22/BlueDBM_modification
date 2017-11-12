@@ -28,6 +28,7 @@ THE SOFTWARE.
 #define DWHONG	// Test
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(4 + 1) // +1 is used for default or external copyback case
+#define PLANE_NUMBER	(2)
 
 #define GC_HIGH_THRESHOLD	(10)
 #define GC_THRESHOLD		(2 + MAX_COPY_BACK)
@@ -119,6 +120,7 @@ typedef struct {
 typedef struct {
 	uint64_t nr_channels;
 	uint64_t nr_chips_per_channel;
+	uint64_t nr_planes;
 	uint64_t nr_blocks_per_chip;
 	uint64_t nr_pages_per_block;
 	uint64_t page_main_size;

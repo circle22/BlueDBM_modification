@@ -267,11 +267,22 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 	} else if (bdbm_is_rmw (r->req_type) && bdbm_is_read (r->req_type)) {
 		bdbm_bug_on (1);
 	} else {
-		if ((ret = bdbm_prior_queue_enqueue (p->q, r->phyaddr.punit_id, r->logaddr.lpa[0], (void*)r))) {
+		int i = 0;
+		if(r->req_type == REQTYPE_WRITE){
+			for(i = 0; i < 8; i ++){
+				if(r->fmain.kp_stt[i] == KP_STT_DATA) break;
+			}
+			
+			if(i == 8){
+				bdi->ptr_hlm_inf->end_req (bdi, r);
+				return 0;
+			}
+		}
+		if ((ret = bdbm_prior_queue_enqueue (p->q, r->phyaddr.punit_id, r->logaddr.lpa[i], (void*)r))) {
 			bdbm_msg ("bdbm_prior_queue_enqueue failed");
 		}
 	}
-
+	
 	/* wake up thread if it sleeps */
 	bdbm_thread_wakeup (p->llm_thread);
 

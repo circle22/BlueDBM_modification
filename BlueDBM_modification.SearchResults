@@ -1,3 +1,17 @@
----- average_valid_count Matches (2 in 1 files) ----
-Page_ftl.c (ftl\algo):	uint64_t average_valid_count;
-Page_ftl.c (ftl\algo):	p->average_valid_count= 0;
+---- src_valid_page_count Matches (16 in 1 files) ----
+Page_ftl.c (ftl\algo):	uint64_t src_valid_page_count;
+Page_ftl.c (ftl\algo):	p->src_valid_page_count = 0;
+Page_ftl.c (ftl\algo):					p->src_valid_page_count += (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages);
+Page_ftl.c (ftl\algo):		bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
+Page_ftl.c (ftl\algo):	if (p->src_valid_page_count == 0)
+Page_ftl.c (ftl\algo):		if (p->src_valid_page_count == 0)
+Page_ftl.c (ftl\algo):	average_valid = ((p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits) / np->nr_planes;
+Page_ftl.c (ftl\algo):	if (p->src_valid_page_count >= remaining_sub_page)
+Page_ftl.c (ftl\algo):	if (p->src_valid_page_count > p->gc_subpages_move_unit)
+Page_ftl.c (ftl\algo):		p->src_valid_page_count -= p->gc_subpages_move_unit; 
+Page_ftl.c (ftl\algo):		p->src_valid_page_count = 0;
+Page_ftl.c (ftl\algo)://	bdbm_msg("	write page : %lld", p->src_valid_page_count);
+Page_ftl.c (ftl\algo):	if (p->src_valid_page_count > p->nr_punits)
+Page_ftl.c (ftl\algo):		p->src_valid_page_count -= p->nr_punits; 
+Page_ftl.c (ftl\algo):		p->src_valid_page_count = 0;
+Page_ftl.c (ftl\algo)://	bdbm_msg("	write page : %lld", p->src_valid_page_count);

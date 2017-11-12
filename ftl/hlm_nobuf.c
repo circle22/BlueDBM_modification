@@ -61,6 +61,9 @@ bdbm_hlm_inf_t _hlm_nobuf_inf = {
 /* data structures for hlm_nobuf */
 typedef struct {
 	bdbm_hlm_req_t tmp_hr;
+    uint8_t* buf[BDBM_MAX_PAGES];
+    uint64_t oob[BDBM_MAX_PAGES];
+    uint8_t cur_buf_ofs;
 } bdbm_hlm_nobuf_private_t;
 
 
@@ -68,6 +71,7 @@ typedef struct {
 uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 {
 	bdbm_hlm_nobuf_private_t* p;
+    int i = 0;
 
 	/* create private */
 	if ((p = (bdbm_hlm_nobuf_private_t*)bdbm_malloc
@@ -75,6 +79,12 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 		bdbm_error ("bdbm_malloc failed");
 		return 1;
 	}
+
+    for (i = 0; i < BDBM_MAX_PAGES; i++){
+        p->buf[i] = (uint8_t*)bdbm_malloc(KPAGE_SIZE);
+        p->oob[i] = -1;
+    }
+    p->cur_buf_ofs = 0;
 
 	/* keep the private structure */
 	bdi->ptr_hlm_inf->ptr_private = (void*)p;
@@ -95,12 +105,87 @@ uint32_t __hlm_nobuf_make_trim_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* ptr_hl
 	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
 	uint64_t i;
 
-	bdbm_msg("trim_req----------");
 	for (i = 0; i < ptr_hlm_req->len; i++) {
 		ftl->invalidate_lpa (bdi, ptr_hlm_req->lpa + i, 1);
 	}
 
 	return 0;
+}
+
+uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+	int i = 0;
+
+	for(i = 0; i < BDBM_MAX_PAGES; i++){
+		if(p->oob[i] == lr->logaddr.lpa[lr->logaddr.ofs]){
+			bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buf[i], KPAGE_SIZE);
+			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+			return i;
+		}
+	}
+    return -1;
+}
+
+int __hlm_flush_buffer(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
+	int i = 0, cnt = 0;
+
+	lr->logaddr.ofs = -1;
+	for(i = 0; i < p->cur_buf_ofs; i++){
+		lr->fmain.kp_ptr[i] = lr->fmain.kp_pad[i];
+		bdbm_memcpy (lr->fmain.kp_ptr[i], p->buf[i], KPAGE_SIZE);
+		lr->fmain.kp_stt[i] = KP_STT_DATA;
+		lr->logaddr.lpa[i] = p->oob[i];
+		p->oob[i] = -1;
+		cnt++;
+	}
+	p->cur_buf_ofs = 0;
+
+	return cnt;
+}
+
+uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
+	int i = 0, same = -1;
+	
+	for(i = 0; i < p->cur_buf_ofs; i++){
+		if(p->oob[i] == lr->logaddr.lpa[lr->logaddr.ofs])
+		    same = i;
+	}
+
+	if(same == -1){
+		bdbm_memcpy (p->buf[p->cur_buf_ofs], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
+		p->oob[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
+		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
+	}else{
+		bdbm_memcpy (p->buf[same], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
+		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+		return p->cur_buf_ofs;
+	}
+
+	if(p->cur_buf_ofs + 1 == BDBM_MAX_PAGES){
+		for(i = 0; i < BDBM_MAX_PAGES; i++){
+			lr->fmain.kp_ptr[i] = lr->fmain.kp_pad[i];
+			bdbm_memcpy (lr->fmain.kp_ptr[i], p->buf[i], KPAGE_SIZE);
+			lr->fmain.kp_stt[i] = KP_STT_DATA;
+			lr->logaddr.lpa[i] = p->oob[i];
+			p->oob[i] = -1;
+		}
+		p->cur_buf_ofs = 0;
+		return BDBM_MAX_PAGES;
+	}else{ 
+		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+		p->cur_buf_ofs++;
+
+		// call back ???
+
+		return p->cur_buf_ofs;
+	}
 }
 
 uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
@@ -116,47 +201,46 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		if (bdbm_is_normal (lr->req_type)) {
 			/* handling normal I/O operations */
 			if (bdbm_is_read (lr->req_type)) {
-				if (ftl->get_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr, &sp_ofs) != 0) {
-					/* Note that there could be dummy reads (e.g., when the
-					 * file-systems are initialized) */
-					lr->req_type = REQTYPE_READ_DUMMY;
-				} else {
-					hlm_reqs_pool_relocate_kp (lr, sp_ofs);
+				if(__hlm_buffered_read(bdi, lr) == -1){
+					if (ftl->get_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr, &sp_ofs) != 0) {
+						/* Note that there could be dummy reads (e.g., when the
+						 * file-systems are initialized) */
+						lr->req_type = REQTYPE_READ_DUMMY;
+					} else {
+						hlm_reqs_pool_relocate_kp (lr, sp_ofs);
+					}
 				}
 			} else if (bdbm_is_write (lr->req_type)) {
-#ifndef DWHONG
-				if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
-					bdbm_error ("`ftl->get_free_ppa' failed");
-					goto fail;
-				}
-#else
-
-				if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0)
-				{
-					//bdbm_msg("OnDemand GC start\n");
-
-					do 
-					{
-						while(ftl->do_gc(bdi, 1) != 0)
-						{
-							// G.C Execution
+				if(lr->logaddr.ofs != -1){
+					if(__hlm_buffered_write(bdi, lr) == BDBM_MAX_PAGES){
+						if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
+							bdbm_error ("`ftl->get_free_ppa' failed");
+							goto fail;
+						}
+						
+						if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
+							bdbm_error ("`ftl->map_lpa_to_ppa' failed");
+							goto fail;
 						}
 					}
-					while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0);
-					
-					//bdbm_msg("OnDemand GC end\n");
 				}
-#endif
-				
-				if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
-					bdbm_error ("`ftl->map_lpa_to_ppa' failed");
-					goto fail;
-				}
-			} else {
+                else{
+                    if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
+                        bdbm_error ("`ftl->get_free_ppa' failed");
+                        goto fail;
+                    }
+                    if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
+                        bdbm_error ("`ftl->map_lpa_to_ppa' failed");
+                        goto fail;
+                    }
+                }
+			} 
+			else {
 				bdbm_error ("oops! invalid type (%x)", lr->req_type);
 				bdbm_bug_on (1);
 			}
-		} else if (bdbm_is_rmw (lr->req_type)) {
+		} 
+		else if (bdbm_is_rmw (lr->req_type)) {
 			bdbm_phyaddr_t* phyaddr = &lr->phyaddr_src;
 
 			/* finding the location of the previous data */ 
@@ -170,41 +254,27 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			}
 
 			/* getting the location to which data will be written */
-#ifndef DWHONG
+
 			if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0) {
 				bdbm_error ("`ftl->get_free_ppa' failed");
 				goto fail;
 			}
-#else
-			if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0)
-			{
-				bdbm_msg("OnDemand GC -RMW");
 
-				do 
-				{
-					while(ftl->do_gc(bdi, 0) != 0)
-					{
-						// G.C Execution
-					}
+			if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, phyaddr) != 0) {
+					bdbm_error ("`ftl->map_lpa_to_ppa' failed");
+					goto fail;
 				}
-				while (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], phyaddr) != 0);
-			}
-#endif
-		if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, phyaddr) != 0) {
-				bdbm_error ("`ftl->map_lpa_to_ppa' failed");
-				goto fail;
-			}
-		} else {
-			bdbm_error ("oops! invalid type (%x)", lr->req_type);
-			bdbm_bug_on (1);
+			} else {
+				bdbm_error ("oops! invalid type (%x)", lr->req_type);
+				bdbm_bug_on (1);
 		}
 
 		/* (2) setup oob */
-		for (j = 0; j < np->nr_subpages_per_page; j++) {
+		for (j = 0; j < BDBM_MAX_PAGES; j++) {
 			((int64_t*)lr->foob.data)[j] = lr->logaddr.lpa[j];
 		}
 	}
-
+ 	
 	/* (3) send llm_req to llm */
 	if (bdi->ptr_llm_inf->make_reqs == NULL) {
 		/* send individual llm-reqs to llm */
@@ -242,7 +312,7 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 #ifndef DWHONG
 		/* see if foreground GC is needed or not */
 		for (loop = 0; loop < 10; loop++) {
-			if (hr->req_type == REQTYPE_WRITE && 
+			if (bdbm_is_write(hr->req_type) && 
 				ftl->is_gc_needed != NULL && 
 				ftl->is_gc_needed (bdi, 0)) {
 				/* perform GC before sending requests */ 
@@ -253,7 +323,7 @@ void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		}
 		asdfasdf
 #else
-		if (hr->req_type == REQTYPE_WRITE && 
+		if (bdbm_is_write(hr->req_type) && 
 			ftl->is_gc_needed != NULL && ftl->is_gc_needed (bdi, 0)) 
 		{
 			uint32_t ret;	

@@ -96,8 +96,12 @@ babm_abm_subpage_t* __bdbm_abm_create_pst (bdbm_device_params_t* np)
 	/* NOTE: pst is managed in the unit of subpage to support fine-grain
 	 * mapping FTLs that are often used to avoid expensive read-modify-writes
 	 * */
+/*	 
 	pst = bdbm_malloc (sizeof (babm_abm_subpage_t) * np->nr_subpages_per_block);
 	bdbm_memset (pst, BABM_ABM_SUBPAGE_NOT_INVALID, sizeof (babm_abm_subpage_t) * np->nr_subpages_per_block);
+*/
+	pst = bdbm_malloc ((np->nr_pages_per_block+7) / 8); // byte for page
+	bdbm_memset (pst, (0x1 << np->nr_subpages_per_page) - 1, (np->nr_pages_per_block+7) / 8); // 0xF for 4 subpages, 0x3 for 2 subpages.
 
 	return pst;
 };
@@ -551,8 +555,10 @@ void bdbm_abm_invalidate_page (
 	uint64_t subpage_no)
 {
 	bdbm_abm_block_t* b = NULL;
+	uint64_t pst_idx;
 	uint64_t pst_off = 0;
-
+	uint8_t* bit_map;
+	
 	b = bdbm_abm_get_block (bai, channel_no, chip_no, block_no);
 
 	bdbm_bug_on (b == NULL);
@@ -563,40 +569,18 @@ void bdbm_abm_invalidate_page (
 	bdbm_bug_on (subpage_no >= bai->np->nr_subpages_per_page);
 
 	/* get a subpage offst in pst */
- 	pst_off = (page_no * bai->np->nr_subpages_per_page) + subpage_no;
-	bdbm_bug_on (pst_off >= bai->np->nr_subpages_per_block);
+	pst_idx = page_no / 8; // 8 page per 64bit
+	pst_off = page_no % 8;
+	bit_map = (uint8_t*)(b->pst[pst_idx]);
 
 	/* if pst is NULL, ignore it */
 	if (b->pst == NULL)
 		return;
 
-	if (b->pst[pst_off] == BABM_ABM_SUBPAGE_NOT_INVALID) 
+	if (bit_map[pst_off] & (0x01 << subpage_no))
 	{
-		b->pst[pst_off] = BDBM_ABM_SUBPAGE_INVALID;
+		b->pst[pst_off] &= ~ (0x01 << subpage_no);
 
-#if 0
-		/* is the block clean? */
-		if (b->nr_invalid_subpages == 0) {
-			if (b->status != BDBM_ABM_BLK_CLEAN) {
-				bdbm_msg ("b->status: %u (%llu %llu %llu) (%llu %llu)", 
-					b->status, channel_no, chip_no, block_no, page_no, subpage_no);
-				bdbm_bug_on (b->status != BDBM_ABM_BLK_CLEAN);
-			}
-
-			/* if so, its status is changed and then moved to a dirty list */
-			b->status = BDBM_ABM_BLK_DIRTY;
-			list_del (&b->list);
-			list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->chip_no]));
-
-			if (bai->nr_clean_blks > 0) {
-				bdbm_bug_on (bai->nr_clean_blks == 0);
-				__bdbm_abm_check_status (bai);
-
-				bai->nr_clean_blks--;
-				bai->nr_dirty_blks++;
-			}
-		}
-#endif		
 		/* increase # of invalid pages in the block */
 		b->nr_invalid_subpages++;
 		bdbm_bug_on (b->nr_invalid_subpages > bai->np->nr_subpages_per_block);
@@ -604,7 +588,7 @@ void bdbm_abm_invalidate_page (
 	else 
 	{
 		/* ignore if it was invalidated before */
-			bdbm_error ("already invalidated");
+		//bdbm_error ("already invalidated");
 	}
 }
 

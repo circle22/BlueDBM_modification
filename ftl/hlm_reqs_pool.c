@@ -321,7 +321,7 @@ static int __hlm_reqs_pool_create_write_req (
 	bdbm_blkio_req_t* br)
 {
 	int64_t sec_start, sec_end, pg_start, pg_end;
-	int64_t i = 0, j = 0, k = 0;
+	int64_t i = 0, j = 0, k = 0, l = 0, m = 0, tmp_size = 0, added_size = 0;
 	int64_t hole = 0, bvec_cnt = 0, nr_llm_reqs;
 	bdbm_flash_page_main_t* ptr_fm = NULL;
 	bdbm_llm_req_t* ptr_lr = NULL;
@@ -351,6 +351,7 @@ static int __hlm_reqs_pool_create_write_req (
 		for (j = 0, hole = 0; j < pool->io_unit / pool->map_unit; j++) {
 			/* build kernel-pages */
 			ptr_lr->logaddr.lpa[j] = sec_start / NR_KSECTORS_IN(pool->map_unit);
+			ptr_lr->logaddr.ofs = -1;
 			for (k = 0; k < NR_KPAGES_IN(pool->map_unit); k++) {
 				uint64_t pg_off = sec_start / NR_KSECTORS_IN(KPAGE_SIZE);
 
@@ -362,7 +363,7 @@ static int __hlm_reqs_pool_create_write_req (
 					ptr_fm->kp_stt[fm_ofs] = KP_STT_DATA;
 					ptr_fm->kp_ptr[fm_ofs] = br->bi_bvec_ptr[bvec_cnt++]; /* assign actual data */
 				} else {
-					hole = 1;
+					hole++;
 				}
 
 				/* go to the next */
@@ -372,13 +373,13 @@ static int __hlm_reqs_pool_create_write_req (
 
 			if (sec_start >= sec_end)
 				break;
-		}
+        }
 
 		/* decide the reqtype for llm_req */
-		ptr_lr->req_type = br->bi_rw;
+		ptr_lr->req_type = REQTYPE_WRITE;
 		if (hole == 1 && pool->in_place_rmw && br->bi_rw == REQTYPE_WRITE) {
 			/* NOTE: if there are holes and map-unit is equal to io-unit, we
-			 * should perform old-fashioned RMW operations */
+			*           * should perform old-fashioned RMW operations */
 			ptr_lr->req_type = REQTYPE_RMW_READ;
 		}
 
@@ -389,14 +390,31 @@ static int __hlm_reqs_pool_create_write_req (
 
 	bdbm_bug_on (bvec_cnt != br->bi_bvec_cnt);
 
-	/* intialize hlm_req */
-	hr->req_type = br->bi_rw;
-	bdbm_stopwatch_start (&hr->sw);
-	hr->nr_llm_reqs = nr_llm_reqs;
-	atomic64_set (&hr->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hr->done);
-	hr->blkio_req = (void*)br;
-	hr->ret = 0;
+    /* intialize hlm_req */
+    hr->req_type = br->bi_rw;
+    bdbm_stopwatch_start (&hr->sw);
+    hr->nr_llm_reqs = nr_llm_reqs + add;
+    atomic64_set (&hr->nr_llm_reqs_done, 0);
+    bdbm_sema_lock (&hr->done);
+    hr->blkio_req = (void*)br;
+    hr->ret = 0;
+/*
+    lr = &hr->llm_reqs[0];
+    for (i = 0; i < nr_llm_reqs + add; i++) {
+        bdbm_msg("AFTER[%d](%lld, %lld, %lld, %lld)(%d, %d, %d, %d)",
+                i,
+                lr->logaddr.lpa[0],
+                lr->logaddr.lpa[1],
+                lr->logaddr.lpa[2],
+                lr->logaddr.lpa[3],
+                lr->fmain.kp_stt[0],
+                lr->fmain.kp_stt[1],
+                lr->fmain.kp_stt[2],
+                lr->fmain.kp_stt[3]
+                );
+        lr++;
+    }
+    */
 
 	return 0;
 }
@@ -528,6 +546,83 @@ void hlm_reqs_pool_copy(
 		}
 	}
 }
+
+void hlm_reqs_pool_compaction(
+	bdbm_hlm_req_gc_t* dst,
+	bdbm_hlm_req_gc_t* src,
+	bdbm_device_params_t* np,
+	uint64_t dst_offset,
+	uint64_t read_req_count)
+{
+	uint64_t subpage, unit;
+	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	uint64_t src_idx = nr_punits * np->nr_planes;
+	uint64_t src_subpage = 0;
+	uint64_t plane;
+		
+	bdbm_llm_req_t* dst_req;
+	bdbm_llm_req_t* src_req;
+
+	for (unit = 0; unit < nr_punits; unit++)
+	{
+		dst_req = &dst->llm_reqs[dst_offset + unit];
+		dst_req->dma = 0;
+		hlm_reqs_pool_reset_fmain (&dst_req->fmain);
+
+		for (plane = 0; plane < np->nr_planes; plane++)
+		{	
+			src_req = &src->llm_reqs[plane*nr_punits + unit];
+			dst_req->dma += src_req->dma;
+			
+			for (subpage = 0; subpage < np->nr_subpages_per_page; subpage++)
+			{
+				uint64_t dst_subpage = plane*np->nr_subpages_per_page + subpage;
+
+				if (src_req->fmain.kp_stt[subpage] == KP_STT_DATA)
+				{
+					// page read data
+					dst_req->fmain.kp_stt[dst_subpage] = src_req->fmain.kp_stt[subpage];
+					dst_req->fmain.kp_ptr[dst_subpage] = src_req->fmain.kp_ptr[subpage];
+					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
+				}
+				else
+				{
+					// partial page read data
+					while (src_idx < read_req_count)
+					{
+						uint64_t data_copy = 0;
+						if (src->llm_reqs[src_idx].fmain.kp_stt[src_subpage] == KP_STT_DATA)
+						{
+							dst_req->fmain.kp_stt[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_stt[src_subpage];
+							dst_req->fmain.kp_ptr[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_ptr[src_subpage];
+							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
+
+							data_copy = 1;
+							dst_req->dma++;
+						}
+
+						src_subpage++;
+						if (src_subpage == np->nr_subpages_per_page)
+						{
+							src_subpage = 0;
+							src_idx++;
+						}
+
+						if (data_copy != 0)
+						{
+							break;
+						}
+					}					
+				}
+			}			
+			// single plane done.
+		}
+		// copy dst_req is done.
+	}
+
+	bdbm_bug_on(src_idx+1 < read_req_count);
+}
+
 
 void hlm_reqs_pool_write_compaction (
 	bdbm_hlm_req_gc_t* dst, 
