@@ -558,6 +558,8 @@ void bdbm_abm_invalidate_page (
 	uint64_t pst_idx;
 	uint64_t pst_off = 0;
 	uint8_t* bit_map;
+
+	//bdbm_msg("abm_invalidate: %lld,%lld,%lld,%lld,%lld", channel_no, chip_no, block_no, page_no, subpage_no);
 	
 	b = bdbm_abm_get_block (bai, channel_no, chip_no, block_no);
 
@@ -571,7 +573,7 @@ void bdbm_abm_invalidate_page (
 	/* get a subpage offst in pst */
 	pst_idx = page_no / 8; // 8 page per 64bit
 	pst_off = page_no % 8;
-	bit_map = (uint8_t*)(b->pst[pst_idx]);
+	bit_map = (uint8_t*)(b->pst + pst_idx);
 
 	/* if pst is NULL, ignore it */
 	if (b->pst == NULL)

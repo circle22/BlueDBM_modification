@@ -42,7 +42,7 @@ THE SOFTWARE.
 #include "ufile.h"
 #include "dev_ramssd.h"
 
-//#define DATA_CHECK
+#define DATA_CHECK
 
 #if defined (DATA_CHECK)
 static void* __ptr_ramssd_data = NULL;
@@ -376,6 +376,7 @@ static uint32_t __ramssd_send_cmd (
 	uint8_t ret = 0;
 	uint8_t use_oob = 1;	/* read or program OOB by default; why not??? */
 	uint8_t use_partial = 0;
+	uint64_t plane;
 
 	if (ri->np->page_oob_size == 0)
 		use_oob = 0;
@@ -404,24 +405,32 @@ static uint32_t __ramssd_send_cmd (
 	case REQTYPE_WRITE:
 	case REQTYPE_META_WRITE:
 	case REQTYPE_GC_WRITE:
-		ret = __ramssd_prog_page (
-			ri, 
-			ptr_req->phyaddr.channel_no,
-			ptr_req->phyaddr.chip_no,
-			ptr_req->phyaddr.block_no,
-			ptr_req->phyaddr.page_no,
-			ptr_req->fmain.kp_stt,
-			ptr_req->fmain.kp_ptr,
-			ptr_req->foob.data,
-			use_oob);
+		for (plane = 0; plane < ri->np->nr_planes; plane++)
+		{
+			uint64_t index = plane*ri->np->nr_subpages_per_page;
+			
+			ret = __ramssd_prog_page (
+				ri, 
+				ptr_req->phyaddr.channel_no,
+				ptr_req->phyaddr.chip_no,
+				ptr_req->phyaddr.block_no + plane,
+				ptr_req->phyaddr.page_no,
+				ptr_req->fmain.kp_stt + index,
+				ptr_req->fmain.kp_ptr + index,
+				ptr_req->foob.data + index*ri->np->page_oob_size,
+				use_oob);
+		}
 		break;
 
 	case REQTYPE_GC_ERASE:
-		ret = __ramssd_erase_block (
-			ri, 
-			ptr_req->phyaddr.channel_no, 
-			ptr_req->phyaddr.chip_no, 
-			ptr_req->phyaddr.block_no);
+		for (plane = 0; plane < ri->np->nr_planes; plane++)
+		{
+			ret = __ramssd_erase_block (
+				ri, 
+				ptr_req->phyaddr.channel_no, 
+				ptr_req->phyaddr.chip_no, 
+				ptr_req->phyaddr.block_no + plane);
+		}
 		break;
 
 	case REQTYPE_READ_DUMMY:

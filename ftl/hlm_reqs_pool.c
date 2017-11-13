@@ -321,7 +321,7 @@ static int __hlm_reqs_pool_create_write_req (
 	bdbm_blkio_req_t* br)
 {
 	int64_t sec_start, sec_end, pg_start, pg_end;
-	int64_t i = 0, j = 0, k = 0, l = 0, m = 0, tmp_size = 0, added_size = 0;
+	int64_t i = 0, j = 0, k = 0;
 	int64_t hole = 0, bvec_cnt = 0, nr_llm_reqs;
 	bdbm_flash_page_main_t* ptr_fm = NULL;
 	bdbm_llm_req_t* ptr_lr = NULL;
@@ -352,6 +352,12 @@ static int __hlm_reqs_pool_create_write_req (
 			/* build kernel-pages */
 			ptr_lr->logaddr.lpa[j] = sec_start / NR_KSECTORS_IN(pool->map_unit);
 			ptr_lr->logaddr.ofs = -1;
+
+			if (  ptr_lr->logaddr.lpa[j] == 0)
+			{
+				bdbm_msg("create write req : lpn %lld, idx : %lld",  ptr_lr->logaddr.lpa[j], j);
+			}
+
 			for (k = 0; k < NR_KPAGES_IN(pool->map_unit); k++) {
 				uint64_t pg_off = sec_start / NR_KSECTORS_IN(KPAGE_SIZE);
 
@@ -387,8 +393,52 @@ static int __hlm_reqs_pool_create_write_req (
 		ptr_lr->ptr_hlm_req = (void*)hr;
 		ptr_lr++;
 	}
-
 	bdbm_bug_on (bvec_cnt != br->bi_bvec_cnt);
+/*
+	bdbm_llm_req_t* lr = &hr->llm_reqs[0];
+	for (i = 0; i < nr_llm_reqs; i++) {
+        bdbm_msg("BEFORE[%d](%lld, %lld, %lld, %lld)(%d, %d, %d, %d)",
+                i,
+                lr->logaddr.lpa[0],
+                lr->logaddr.lpa[1],
+                lr->logaddr.lpa[2],
+                lr->logaddr.lpa[3],
+                lr->fmain.kp_stt[0],
+                lr->fmain.kp_stt[1],
+                lr->fmain.kp_stt[2],
+                lr->fmain.kp_stt[3]
+                );
+        lr++;
+    }
+*/
+    ptr_lr--;
+    int nr_valid = 0;
+    int add = 0;
+
+    for (j = 0; j < pool->io_unit / pool->map_unit; j++) {
+        if(ptr_lr->fmain.kp_stt[j] == KP_STT_DATA) nr_valid++;
+    }
+	
+    if(nr_valid > 0 && nr_valid < 8){
+        bdbm_llm_req_t* next = ptr_lr + 1;
+        ptr_lr->logaddr.ofs = 0;
+        for (k = 1; k < (pool->io_unit / pool->map_unit) - 1; k++) {
+            if (ptr_lr->fmain.kp_stt[k] == KP_STT_DATA) {
+                hlm_reqs_pool_reset_fmain (&next->fmain);
+                hlm_reqs_pool_reset_logaddr (&next->logaddr);
+                next->req_type = REQTYPE_WRITE;
+                next->fmain.kp_stt[k] = KP_STT_DATA;
+                next->fmain.kp_ptr[k] = ptr_lr->fmain.kp_ptr[k];
+                next->logaddr.lpa[k] = ptr_lr->logaddr.lpa[k];
+                next->logaddr.ofs = k;
+                next->ptr_hlm_req = (void*)hr;
+
+                ptr_lr->fmain.kp_stt[k] = KP_STT_HOLE;
+                ptr_lr->logaddr.lpa[k] = -1;
+                next++; add++;
+            }
+        }
+    }
 
     /* intialize hlm_req */
     hr->req_type = br->bi_rw;
@@ -454,6 +504,11 @@ static int __hlm_reqs_pool_create_read_req (
 		else
 			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
 		ptr_lr->ptr_hlm_req = (void*)hr;
+
+		if (ptr_lr->logaddr.lpa[0] == 0)
+		{	
+			bdbm_msg("create read req : lpn %lld, offset : %lld",  ptr_lr->logaddr.lpa[0], offset);
+		}
 
 		/* go to the next */
 		pg_start++;

@@ -381,7 +381,6 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->src_unit_hand = 0;
 	p->src_plane_hand = 0;
 	p->dst_offset = 0;
-	p->external_copy_count = 0;
 	
 	p->external_die_difference_count = 0;
 	p->external_partial_valid_count = 0;
@@ -744,7 +743,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_page_mapping_entry_t* me = NULL;
-	int subpage;
+	uint64_t subpage;
 	uint64_t plane;
 
 	for (plane = 0; plane < np->nr_planes; plane++)
@@ -1283,7 +1282,6 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
-	uint64_t unit, plane;
 	bdbm_llm_req_t* req;
 
 	uint64_t src_unit;
@@ -1387,11 +1385,11 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 						valid_count = 4;
 						break;
 						
-					case 14, 13, 11, 7: 		// 1110, 1101, 1011, 0111
+					case 14: case 13: case 11: case 7: 		// 1110, 1101, 1011, 0111
 						valid_count = 3;
 						break;
 	
-					case 12, 10, 9, 6, 5, 3:	// 1100, 1010, 1001, 0110, 0101, 0011\
+					case 12: case 10: case 9: case 6: case 5: case  3:	// 1100, 1010, 1001, 0110, 0101, 0011
 						bypassed_page += 2;
 						if ((check_distance >= 2) || (valid_subpage_count < bypassed_page + np->nr_subpages_per_page))
 						{
@@ -1399,7 +1397,7 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 						}
 						break;
 					
-					case 8, 4, 2, 1:			// 1000, 0100, 0010, 0001
+					case 8: case 4: case 2: case 1:			// 1000, 0100, 0010, 0001
 						bypassed_page += 1;
 						if ((check_distance >= 2) || (valid_subpage_count == bypassed_page))
 						{
@@ -1565,7 +1563,7 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 						}
 						break;
 						
-					case 14, 13, 11, 7: 		// 1110, 1101, 1011, 0111					
+					case 14: case 13: case 11: case 7: 		// 1110, 1101, 1011, 0111					
 						bypassed_page += 3;
 						if ((check_distance >= 2) || (valid_subpage_count < bypassed_page + np->nr_subpages_per_page))
 						{
@@ -1573,11 +1571,11 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 						}
 						break;
 	
-					case 12, 10, 9, 6, 5, 3:	// 1100, 1010, 1001, 0110, 0101, 0011\
+					case 12: case 10: case 9: case 6: case 5: case 3:	// 1100, 1010, 1001, 0110, 0101, 0011
 						valid_count = 1;
 						break;
 					
-					case 8, 4, 2, 1:			// 1000, 0100, 0010, 0001
+					case 8: case 4: case 2: case 1:			// 1000, 0100, 0010, 0001
 						valid_count = 1;
 						break;
 				}
@@ -1598,7 +1596,7 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 				{
 					req->fmain.kp_stt[subPage] = KP_STT_DATA;
 
-					valid_bitmap[index] = valid_bitmap[index] & ~((0x01 << subPage);	// clear single bit
+					valid_bitmap[index] = valid_bitmap[index] & ~(0x01 << subPage);	// clear single bit
 
 					break;
 				}
@@ -1721,7 +1719,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 			src_unit = p->src_unit_idx[0][unit];
 			if (src_unit != 0xFF)
 			{
-				src_blk = p->gc_src_bab[0][src_unit];
+				src_blk = p->gc_src_bab[src_unit];
 			}
 			
 			// using. src->copy_count info, src/dst plane information.
@@ -1846,7 +1844,7 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 			uint64_t write_dma = 1; // need to execute DMA to NAND.		
 	
 			unit = ch * np->nr_chips_per_channel + way;
-			src_unit = p->src_unit_idx[unit];	
+			src_unit = p->src_unit_idx[0][unit];	
 			src_blk = p->gc_src_bab[src_unit];
 
 			// using. src->copy_count info, src/dst plane information.
@@ -1984,7 +1982,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
 	
 	if (state == 0)
 	{
-		state = bdbm_page_ftl_gc_read_state_adv(bdi)
+		state = bdbm_page_ftl_gc_read_state_adv(bdi);
 	}
 	else
 	{		
