@@ -415,9 +415,9 @@ static uint32_t __ramssd_send_cmd (
 				ptr_req->phyaddr.chip_no,
 				ptr_req->phyaddr.block_no + plane,
 				ptr_req->phyaddr.page_no,
-				ptr_req->fmain.kp_stt + index,
-				ptr_req->fmain.kp_ptr + index,
-				ptr_req->foob.data + index*ri->np->page_oob_size,
+				&ptr_req->fmain.kp_stt[index],
+				&ptr_req->fmain.kp_ptr[index],
+				&ptr_req->foob.data[plane*ri->np->page_oob_size],
 				use_oob);
 		}
 		break;

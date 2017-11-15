@@ -191,29 +191,39 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 	for (i = 0; i < np->nr_channels; i++) {
 		for (j = 0; j < np->nr_chips_per_channel; j++) 
 		{
+			uint64_t plane;			
 			/* restore previous active block */
 			if ((*bab) != NULL)
 			{
-				bdbm_abm_make_dirty_blk(bai, i, j, (*bab)->block_no);
+				for (plane = 0; plane < np->nr_planes; plane++)
+				{
+					bdbm_abm_make_dirty_blk(bai, i, j, (*bab)->block_no + plane);
+				}
 			}
 			
 			/* prepare & commit free blocks */
-			if ((*bab = bdbm_abm_get_free_block_prepare (bai, i, j))) {
-				bdbm_abm_get_free_block_commit (bai, *bab);
-				/*bdbm_msg ("active blk = %p", *bab);*/
+			for (plane = 0; plane < np->nr_planes; plane++)
+			{
+				bdbm_abm_block_t* blk;
 				
-				(*bab)->info = 10;// active
-				(*bab)->copy_count = 0;
-	
-				p->block_info[0]++;
-				//if ( i==0 && j==0)
-				{
-				//	bdbm_msg("A: %lld,%lld,%lld", (*bab)->channel_no, (*bab)->chip_no, (*bab)->block_no);
+				if ((blk = bdbm_abm_get_free_block_prepare (bai, i, j))) {
+					bdbm_abm_get_free_block_commit (bai, blk);
+					/*bdbm_msg ("active blk = %p", *bab);*/
+					
+					blk->info = 10;// active
+					blk->copy_count = 0;
+					p->block_info[0]++;
+
+					if (plane == 0)
+					{
+						// register the first plane block only
+						*bab = blk;					
+						bab++;
+					}
+				} else {
+					bdbm_error ("bdbm_abm_get_free_block_prepare failed");
+					return 1;
 				}
-				bab++;
-			} else {
-				bdbm_error ("bdbm_abm_get_free_block_prepare failed");
-				return 1;
 			}
 		}
 	}

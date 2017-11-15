@@ -99,6 +99,9 @@ enum BDBM_REQTYPE {
 	REQTYPE_RMW 			= 0x000200,
 	REQTYPE_GC 				= 0x000400,
 	REQTYPE_META 			= 0x000800,
+	REQTYPE_FUA				= 0x001000,
+	REQTYPE_SYNC			= 0x002000,
+
 
 	REQTYPE_READ 			= REQTYPE_NORNAL 	| REQTYPE_IO_READ,
 	REQTYPE_READ_DUMMY 		= REQTYPE_NORNAL 	| REQTYPE_IO_READ_DUMMY,
@@ -133,7 +136,7 @@ typedef struct {
 } bdbm_phyaddr_t;
 
 /* max kernel pages per physical flash page */
-#define BDBM_MAX_PAGES 8
+#define BDBM_MAX_PAGES	(8)
 
 /* a bluedbm blockio request */
 #define BDBM_BLKIO_MAX_VECS 256

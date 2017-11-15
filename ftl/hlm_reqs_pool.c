@@ -323,6 +323,8 @@ static int __hlm_reqs_pool_create_write_req (
 	int64_t sec_start, sec_end, pg_start, pg_end;
 	int64_t i = 0, j = 0, k = 0;
 	int64_t hole = 0, bvec_cnt = 0, nr_llm_reqs;
+	int64_t max_map_cnt = pool->io_unit / pool->map_unit;
+ 
 	bdbm_flash_page_main_t* ptr_fm = NULL;
 	bdbm_llm_req_t* ptr_lr = NULL;
 
@@ -348,7 +350,7 @@ static int __hlm_reqs_pool_create_write_req (
 		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr);
 
 		/* build mapping-units */
-		for (j = 0, hole = 0; j < pool->io_unit / pool->map_unit; j++) {
+		for (j = 0, hole = 0; j < max_map_cnt; j++) {
 			/* build kernel-pages */
 			ptr_lr->logaddr.lpa[j] = sec_start / NR_KSECTORS_IN(pool->map_unit);
 			ptr_lr->logaddr.ofs = -1;
@@ -419,7 +421,7 @@ static int __hlm_reqs_pool_create_write_req (
         if(ptr_lr->fmain.kp_stt[j] == KP_STT_DATA) nr_valid++;
     }
 	
-    if(nr_valid > 0 && nr_valid < 8){
+    if (nr_valid > 0 && nr_valid < max_map_cnt){
         bdbm_llm_req_t* next = ptr_lr + 1;
         ptr_lr->logaddr.ofs = 0;
         for (k = 1; k < (pool->io_unit / pool->map_unit) - 1; k++) {
@@ -537,11 +539,11 @@ int bdbm_hlm_reqs_pool_build_req (
 	int ret = 1;
 
 	/* create a hlm_req using a bio */
-	if (br->bi_rw == REQTYPE_TRIM) {
+	if (bdbm_is_trim(br->bi_rw)) {
 		ret = __hlm_reqs_pool_create_trim_req (pool, hr, br);
-	} else if (br->bi_rw == REQTYPE_WRITE) {
+	} else if (bdbm_is_write(br->bi_rw)) {
 		ret = __hlm_reqs_pool_create_write_req (pool, hr, br);
-	} else if (br->bi_rw == REQTYPE_READ) {
+	} else if (bdbm_is_read(br->bi_rw)) {
 		ret = __hlm_reqs_pool_create_read_req (pool, hr, br);
 	}
 

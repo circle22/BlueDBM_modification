@@ -1,0 +1,15 @@
+[global]
+bs=128k
+direct=1
+rw=write
+directory=/media/blueDBM/
+ioengine=libaio
+iodepth=4
+runtime=120
+size=1GB
+
+
+[write0]
+
+
+

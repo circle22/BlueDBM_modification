@@ -124,7 +124,7 @@ bdbm_device_params_t get_default_device_params (void)
 	/* user-specified parameters */
 	p.nr_channels = _param_nr_channels;
  	p.nr_chips_per_channel = _param_nr_chips_per_channel;
-	p.nr_planes = 2;
+	p.nr_planes = PLANE_NUMBER;
  	p.nr_blocks_per_chip = _param_nr_blocks_per_chip;
  	p.nr_pages_per_block = _param_nr_pages_per_block;
  	p.page_main_size = _param_page_main_size;
@@ -232,6 +232,7 @@ void display_device_params (bdbm_device_params_t* p)
     bdbm_msg ("=====================================================================");
     bdbm_msg ("# of channels = %llu", p->nr_channels);
     bdbm_msg ("# of chips per channel = %llu", p->nr_chips_per_channel);
+    bdbm_msg ("# of planes per die = %llu", p->nr_planes);
     bdbm_msg ("# of blocks per chip = %llu", p->nr_blocks_per_chip);
     bdbm_msg ("# of pages per block = %llu", p->nr_pages_per_block);
 	bdbm_msg ("# of subpages per page = %llu", p->nr_subpages_per_page);

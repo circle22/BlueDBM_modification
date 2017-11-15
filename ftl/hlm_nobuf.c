@@ -112,33 +112,29 @@ uint32_t __hlm_nobuf_make_trim_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* ptr_hl
 	return 0;
 }
 
+void __print_buffer(uint8_t* ptr)
+{
+	uint64_t* tmp = (uint64_t*)ptr;
+	uint64_t index;
+
+	for (index = 0; index < 64; index++)
+	{
+		bdbm_msg("%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx", tmp[index*8],  tmp[index*8 + 1], tmp[index*8 + 2], tmp[index*8 + 3], tmp[index*8 + 4], tmp[index*8 + 5], tmp[index*8 + 6], tmp[index*8 + 7]);
+	}
+	bdbm_msg("-----");
+}
+
+
 uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
 	int i = 0;
 
 	for(i = 0; i < BDBM_MAX_PAGES; i++){
 		if(p->oob[i] == lr->logaddr.lpa[lr->logaddr.ofs]){
-
-			if (p->oob[i] == 0)
-			{
-
-			bdbm_msg("Read Hit LBA:%lld, %lld", p->oob[i],i); 
-
-
-			bdbm_msg("-- before copy srd: %x %x %x %x %x %x", p->buf[i][510], p->buf[i][511], p->buf[i][441], p->buf[i][442], p->buf[i][443], p->buf[i][444]);
-			bdbm_msg("-- before copy dst: %x %x %x %x %x %x", lr->fmain.kp_ptr[lr->logaddr.ofs][510], lr->fmain.kp_ptr[lr->logaddr.ofs][511], lr->fmain.kp_ptr[lr->logaddr.ofs][441], lr->fmain.kp_ptr[lr->logaddr.ofs][442], lr->fmain.kp_ptr[lr->logaddr.ofs][443], lr->fmain.kp_ptr[lr->logaddr.ofs][444]); 
-			}
 			
 			bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buf[i], KPAGE_SIZE);
 			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
 			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
-
-	
-
-			if (p->oob[i] == 0)
-			{
-			bdbm_msg("-- after copy dst: %x %x %x %x %x %x", lr->fmain.kp_ptr[lr->logaddr.ofs][510], lr->fmain.kp_ptr[lr->logaddr.ofs][511], lr->fmain.kp_ptr[lr->logaddr.ofs][441], lr->fmain.kp_ptr[lr->logaddr.ofs][442], lr->fmain.kp_ptr[lr->logaddr.ofs][443], lr->fmain.kp_ptr[lr->logaddr.ofs][444]); 
-			}
 
 			return i;
 		}
@@ -166,18 +162,6 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 }
 
 
-void __print_buffer(uint8_t* ptr)
-{
-	uint64_t* tmp = (uint64_t*)ptr;
-	uint64_t index;
-
-	for (index = 0; index < 8; index++)
-	{
-		bdbm_msg("%llx,%llx,%llx,%llx,%llx,%llx,%llx,%llx", tmp[index*8],  tmp[index*8 + 1], tmp[index*8 + 2], tmp[index*8 + 3], tmp[index*8 + 4], tmp[index*8 + 5], tmp[index*8 + 6], tmp[index*8 + 7]);
-	}
-}
-
-
 
 uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
@@ -190,26 +174,9 @@ uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	}
 
 	if(same == -1){
-		if (lr->logaddr.lpa[lr->logaddr.ofs] == 0)
-		{		
-		bdbm_msg("buffering : LPN:%lld,  %lld, %lld", lr->logaddr.lpa[lr->logaddr.ofs], p->cur_buf_ofs, lr->logaddr.ofs);
-		bdbm_msg("-- before copy src");
-		//__print_buffer(
-
-
-
- %x %x %x %x %x %x", p->buf[p->cur_buf_ofs][510], p->buf[p->cur_buf_ofs][511], p->buf[p->cur_buf_ofs][441], p->buf[p->cur_buf_ofs][442], p->buf[p->cur_buf_ofs][443], p->buf[p->cur_buf_ofs][444]);
-		bdbm_msg("-- before copy dst: %x %x %x %x %x %x", lr->fmain.kp_ptr[lr->logaddr.ofs][510], lr->fmain.kp_ptr[lr->logaddr.ofs][511], lr->fmain.kp_ptr[lr->logaddr.ofs][441], lr->fmain.kp_ptr[lr->logaddr.ofs][442], lr->fmain.kp_ptr[lr->logaddr.ofs][443], lr->fmain.kp_ptr[lr->logaddr.ofs][444]);
-		}
-
 		bdbm_memcpy (p->buf[p->cur_buf_ofs], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
 		p->oob[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
 		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
-
-		if (lr->logaddr.lpa[lr->logaddr.ofs] == 0){
-		bdbm_msg("-- after copy dst: %x %x %x %x %x %x", p->buf[p->cur_buf_ofs][510], p->buf[p->cur_buf_ofs][511], p->buf[p->cur_buf_ofs][441], p->buf[p->cur_buf_ofs][442], p->buf[p->cur_buf_ofs][443], p->buf[p->cur_buf_ofs][444]);
-		}
-
 	}else{
 		bdbm_memcpy (p->buf[same], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
 		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
@@ -263,8 +230,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 					}
 				}
 			} else if (bdbm_is_write (lr->req_type)) {
-//				if(lr->logaddr.ofs != -1)
-				if (0)
+				if(lr->logaddr.ofs != -1)
 				{
 					//bdbm_msg("partial write");
 					if(__hlm_buffered_write(bdi, lr) == BDBM_MAX_PAGES){
@@ -281,12 +247,6 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 					}
 				}
                 else{
-					if (lr->logaddr.lpa[0] == 0)
-					{		
-						bdbm_msg("write : LPN:%lld,  %lld", lr->logaddr.lpa[0], lr->logaddr.ofs);
-						bdbm_msg("-- data: %x %x %x %x %x %x", lr->fmain.kp_ptr[0][510], lr->fmain.kp_ptr[0][511], lr->fmain.kp_ptr[0][441], lr->fmain.kp_ptr[0][442], lr->fmain.kp_ptr[0][443], lr->fmain.kp_ptr[0][444]);
-					}
-
 					//bdbm_msg("32KB write"); 
 					if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
                         bdbm_error ("`ftl->get_free_ppa' failed");
@@ -337,7 +297,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			((int64_t*)lr->foob.data)[j] = lr->logaddr.lpa[j];
 		}
 	}
- 	
+	
 	/* (3) send llm_req to llm */
 	if (bdi->ptr_llm_inf->make_reqs == NULL) {
 		/* send individual llm-reqs to llm */
