@@ -100,8 +100,8 @@ babm_abm_subpage_t* __bdbm_abm_create_pst (bdbm_device_params_t* np)
 	pst = bdbm_malloc (sizeof (babm_abm_subpage_t) * np->nr_subpages_per_block);
 	bdbm_memset (pst, BABM_ABM_SUBPAGE_NOT_INVALID, sizeof (babm_abm_subpage_t) * np->nr_subpages_per_block);
 */
-	pst = bdbm_malloc ((np->nr_pages_per_block+7) / 8); // byte for page
-	bdbm_memset (pst, (0x1 << np->nr_subpages_per_page) - 1, (np->nr_pages_per_block+7) / 8); // 0xF for 4 subpages, 0x3 for 2 subpages.
+	pst = bdbm_malloc (np->nr_pages_per_block); // byte for page
+	bdbm_memset (pst, (0x1 << np->nr_subpages_per_page) - 1, np->nr_pages_per_block); // 0xF for 4 subpages, 0x3 for 2 subpages.
 
 	return pst;
 };
@@ -439,10 +439,7 @@ void bdbm_abm_erase_block (
 	blk->erase_count++;
 	blk->nr_invalid_subpages = 0;
 	if (blk->pst) {
-		bdbm_memset (blk->pst, 
-			BABM_ABM_SUBPAGE_NOT_INVALID, 
-			sizeof (babm_abm_subpage_t) * bai->np->nr_subpages_per_block
-		);
+		bdbm_memset (blk->pst, (0x1 << bai->np->nr_subpages_per_page) - 1, bai->np->nr_pages_per_block); // 0xF for 4 subpages, 0x3 for 2 subpages.
 	}
 }
 
@@ -581,7 +578,7 @@ void bdbm_abm_invalidate_page (
 
 	if (bit_map[pst_off] & (0x01 << subpage_no))
 	{
-		b->pst[pst_off] &= ~ (0x01 << subpage_no);
+		bit_map[pst_off] &= ~ (0x01 << subpage_no);
 
 		/* increase # of invalid pages in the block */
 		b->nr_invalid_subpages++;

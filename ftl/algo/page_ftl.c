@@ -111,7 +111,8 @@ typedef struct {
 	uint64_t total_write_count[64];
 	uint64_t invald_page_count[64];
 	uint64_t block_info[MAX_COPY_BACK];
-	
+
+	uint64_t src_valid;
 	uint64_t src_valid_page_count;
 	uint64_t src_unit_hand;
 	uint64_t src_plane_hand;	
@@ -387,6 +388,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	bdbm_sema_init (&p->gc_hlm_w.done);
 	hlm_reqs_pool_allocate_llm_reqs (p->gc_hlm_w.llm_reqs, p->nr_punits_pages, RP_MEM_PHY);
 
+	p->src_valid= 0;
 	p->src_valid_page_count = 0;
 	p->src_unit_hand = 0;
 	p->src_plane_hand = 0;
@@ -459,12 +461,18 @@ void bdbm_page_ftl_print_blocks(bdbm_drv_info_t* bdi)
 		{	
 			unit = ch * np->nr_chips_per_channel + way;
 
+			if ((p->ac_bab[unit] != NULL) && 
+				(p->gc_src_bab[unit]!= NULL) && 
+				(p->gc_dst_bab[0][unit]!= NULL))
+			{
+
 			bdbm_msg("ch:%lld, way:%lld, %lld,%lld,%lld,%lld",ch, way,
 				(p->ac_bab[unit])->block_no,
 				(p->gc_src_bab[unit])->block_no,
 				(p->gc_dst_bab[0][unit])->block_no, unit);
 				//(p->gc_dst_bab[1][ch*np->nr_chips_per_channel + way])->block_no,
 				//(p->gc_dst_bab[2][ch*np->nr_chips_per_channel + way])->block_no);
+			}
 		}
 	}
 }
@@ -668,8 +676,9 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 
 			if ( p->gc_copy_count != 0)
 			{
-			
-				bdbm_msg("external copy %lld, %lld,  %lld %, internal: %lld, refresh: %lld", p->external_die_difference_count, p->gc_copy_count, p->external_die_difference_count *10000/p->gc_copy_count, p->internal_copy_count, p->external_refresh_count);
+		
+				bdbm_msg("total %lld, internal %lld, die %lld, partial %lld, refresh %lld, %lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count);	
+	
 			}
 		}
 	} else {
@@ -703,6 +712,9 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 		{
 			for (plane = 0; plane < np->nr_planes; plane++)
 			{
+
+				bdbm_msg("restore dest : %lld, valid : %lld", p->gc_dst_bab[copy_count][unit]->block_no, p->gc_dst_bab[copy_count][unit]->nr_invalid_subpages);
+
 				bdbm_abm_make_dirty_blk(p->bai, ch, way, p->gc_dst_bab[copy_count][unit]->block_no + plane);
 			}
 		}
@@ -724,7 +736,9 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			bdbm_abm_get_free_block_commit (p->bai, b);
 			b->info = 11;//dest
 			b->copy_count = copy_count;
-			p->block_info[copy_count]++;			
+			p->block_info[copy_count]++;
+
+			bdbm_msg("Dest unit :%llu, plane:%llu, blk : %llu, invalid :%lld", unit, plane, b->block_no, b->nr_invalid_subpages); 	
 		}
 				
 		/* ok; go ahead with 0 offset */ 
@@ -1254,12 +1268,6 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 			ch = unit / np->nr_chips_per_channel;
 			way = unit % np->nr_chips_per_channel; 
 			
-			if (p->bai->nr_free_blks > p->bai->nr_gc_trigger_threshold)
-			{
-				// we already have enough free blocks, so don't need to do gc.
-				continue;
-			}
-
 			// choose victim blocks - new src block
 			if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
 			{
@@ -1280,12 +1288,61 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 					p->invald_page_count[unit] += src_blk[plane].nr_invalid_subpages;
 
 					p->src_valid_page_count += (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages);
+
+					bdbm_msg(  "unit:%lld, plane:%lld, valid:%lld, sum :%lld, %lld", unit, plane, (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages), p->src_valid_page_count, src_blk[plane].block_no) ;
+
 				}
 			}
 		}
 
+			
+//		bdbm_page_ftl_print_blocks(bdi);
 		bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
 	}
+
+
+
+
+
+void check_valid_bitmap(bdbm_abm_block_t* blk)
+{
+	uint64_t index;
+	uint64_t expected_valid_page;
+	uint64_t count = 0;
+	
+	expected_valid_page =	128*4 - blk->nr_invalid_subpages;
+
+	for (index = 0; index < 16; index++)
+	{
+		uint8_t* bitmap = (uint8_t*)(blk->pst + index);
+		uint64_t bit_idx;
+		uint64_t byte_idx;
+		for (byte_idx = 0; byte_idx < 8; byte_idx++)
+		{
+			for (bit_idx = 0; bit_idx < 8; bit_idx++)
+			{
+				if (bitmap[byte_idx] & (0x01 << bit_idx))
+				{
+					count++;
+				}
+			}
+		}
+	}
+
+	if (count != expected_valid_page)
+	{
+		bdbm_msg("VALID_BITMAP_INCONSISTENCY: %lld, %lld, %lld, exp:%lld, real:%lld", blk->channel_no,blk->chip_no, blk->block_no, expected_valid_page, count);
+	}
+	else
+	{
+//		bdbm_msg("  valid check ok :%lld", count);
+	}
+
+
+
+}
+
+
 
 uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_t plane, uint64_t average_valid)
 {
@@ -1305,9 +1362,15 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	uint64_t valid_count = 0;
 	uint64_t check_distance = 0;
 	uint64_t bypassed_page = 0; 
-	
+	uint64_t page_offs = 0;
+
 	src_blk = p->gc_src_bab[unit];
+
 	
+//	bdbm_msg("src blk %lld,%lld,%lld, %lld", src_blk[plane].channel_no, src_blk[plane].chip_no, src_blk[plane].block_no,src_blk[plane].nr_invalid_subpages);	
+	check_valid_bitmap(src_blk);	
+
+
 	valid_subpage_count = np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages;
 	
 	if ((valid_subpage_count != 0) && (valid_subpage_count + np->nr_subpages_per_page >= average_valid))
@@ -1343,6 +1406,8 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 					p->src_unit_hand = src_unit + 1;
 					p->src_plane_hand = src_plane;
 					
+//					bdbm_msg("   other  org:%lld, new:%lld", unit, src_unit);
+
 					break;	//TODO
 				}
 			}
@@ -1375,21 +1440,24 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	{
 		uint64_t pst_idx = page / 8; // 64bit = 8bit x 8page consideration
 		uint8_t* valid_bitmap;
-		uint64_t index;
 		
 		if (src_blk[src_plane].pst[pst_idx] == 0)
 		{
-			p->gc_src_blk_offs[src_plane][src_unit] = page + 1;
 			continue;
 		}
 		
-		valid_bitmap = (uint8_t*)(src_blk[src_plane].pst[pst_idx]);
+		if (bypassed_page == 0)
+		{		
+			p->gc_src_blk_offs[src_plane][src_unit] = page;
+		}
+
+		valid_bitmap = (uint8_t*)(src_blk[src_plane].pst + pst_idx);
 		
-		for (index = 0; index < 8; index++)
+		for (page_offs = 0; page_offs < 8; page_offs++)
 		{
-			if (valid_bitmap[index] != 0)
+			if (valid_bitmap[page_offs] != 0)
 			{
-				switch (valid_bitmap[index])
+				switch (valid_bitmap[page_offs])
 				{
 					case 15:					// 1111
 						valid_count = 4;
@@ -1426,15 +1494,18 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 		if (valid_count != 0)
 		{
 			uint64_t subPage; 
+//			bdbm_msg("    valid page : %lld, valid bitmap:%x, blk:%lld, page:%lld, subpage:%lld, %llx", valid_count, valid_bitmap[page_offs],src_blk[src_plane].block_no,  page, subPage, src_blk[src_plane].pst[pst_idx]);
+			bdbm_msg("    valid page : %lld, blk:%lld, remainedpage:%lld", valid_count, src_blk[src_plane].block_no, 512- src_blk[src_plane].nr_invalid_subpages);
+
 			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++)
 			{
-				if (valid_bitmap[index] & (0x01 << subPage))
+				if (valid_bitmap[page_offs] & (0x01 << subPage))
 				{
 					req->fmain.kp_stt[subPage] = KP_STT_DATA;
 				}
 			}
 	
-			valid_bitmap[index] = 0;
+			valid_bitmap[page_offs] = 0;
 			src_blk[src_plane].nr_invalid_subpages += valid_count;
 			break;
 		}
@@ -1464,7 +1535,7 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	req->phyaddr.channel_no = src_blk[src_plane].channel_no;
 	req->phyaddr.chip_no = src_blk[src_plane].chip_no;
 	req->phyaddr.block_no = src_blk[src_plane].block_no;
-	req->phyaddr.page_no = page;
+	req->phyaddr.page_no = page + page_offs;
 	req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
 	req->ptr_hlm_req = (void*)hlm_gc;
 	req->ret = 0;
@@ -1500,7 +1571,8 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 	uint64_t check_distance = 0;
 	uint64_t bypassed_page = 0; 
 	uint64_t plane_idx;
-	
+	uint64_t page_offs = 0;
+
 	// decide the src unit / plane
 	for (plane_idx = 0; plane_idx < np->nr_planes; plane_idx++)
 	{
@@ -1512,10 +1584,12 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 			src_blk = p->gc_src_bab[src_unit];
 
 			valid_subpage_count = np->nr_subpages_per_block - src_blk[src_plane].nr_invalid_subpages;
-			if ((valid_subpage_count + np->nr_subpages_per_page > average_valid) && (valid_subpage_count != 0))
+			if ((valid_subpage_count + np->nr_subpages_per_page >= average_valid) && (valid_subpage_count != 0))
 			{
 				p->src_unit_hand = src_unit + 1;
 				p->src_plane_hand = src_plane;
+
+				bdbm_msg("Partial : src unit :%lld, src_plane: %lld, %lld, %lld, avg:%lld" ,src_unit, src_plane, src_blk->block_no, valid_subpage_count, average_valid);
 				
 				break;	//TODO
 			}
@@ -1541,29 +1615,37 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 	
 	if (idx == p->nr_punits)
 	{
+		bdbm_msg("average :%lld", average_valid);
 		// nothing to read // assert.
 		return 0;
 	}
 		
+//	bdbm_msg("    src unit :%lld, src_plane: %lld, %lld, %lld" ,src_unit, src_plane, src_blk->block_no, src_blk->nr_invalid_subpages);
+
 	for (page = p->gc_src_blk_offs[src_plane][src_unit]; page < np->nr_pages_per_block; page += 8)
 	{
 		uint64_t pst_idx = page / 8; // 64bit = 8bit x 8page consideration
 		uint8_t* valid_bitmap;
-		uint64_t index;
 		
+//		bdbm_msg("	page: %lld, validbitmap : %llx", page, src_blk[src_plane].pst[pst_idx]);
+
 		if (src_blk[src_plane].pst[pst_idx] == 0)
 		{
-			p->gc_src_blk_offs[src_plane][src_unit] = page + 1;
 			continue;
 		}
 		
-		valid_bitmap = (uint8_t*)(src_blk[src_plane].pst[pst_idx]);
+		if (bypassed_page == 0)
+		{		
+			p->gc_src_blk_offs[src_plane][src_unit] = page;
+		}
+
+		valid_bitmap = (uint8_t*)(src_blk[src_plane].pst + pst_idx);
 		
-		for (index = 0; index < 8; index++)
+		for (page_offs = 0; page_offs < 8; page_offs++)
 		{
-			if (valid_bitmap[index] != 0)
+			if (valid_bitmap[page_offs] != 0)
 			{
-				switch (valid_bitmap[index])
+				switch (valid_bitmap[page_offs])
 				{
 					case 15:					// 1111
 						bypassed_page += 4;
@@ -1599,14 +1681,17 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 		
 		if (valid_count != 0)
 		{
-			uint64_t subPage; 
+			uint64_t subPage;
+
+//			bdbm_msg("partial valid page : %lld", valid_count);
+ 
 			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++)
 			{
-				if (valid_bitmap[index] & (0x01 << subPage))
+				if (valid_bitmap[page_offs] & (0x01 << subPage))
 				{
 					req->fmain.kp_stt[subPage] = KP_STT_DATA;
 
-					valid_bitmap[index] = valid_bitmap[index] & ~(0x01 << subPage);	// clear single bit
+					valid_bitmap[page_offs] = valid_bitmap[page_offs] & ~(0x01 << subPage);	// clear single bit
 
 					break;
 				}
@@ -1619,13 +1704,16 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t avera
 		check_distance++;
 	}
 	
+//	bdbm_msg("valid : %d, page:%lld",valid_count, page);
+
+
 	bdbm_bug_on(valid_count == 0);
 	req->req_type = REQTYPE_GC_READ;
 	req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
 	req->phyaddr.channel_no = src_blk[src_plane].channel_no;
 	req->phyaddr.chip_no = src_blk[src_plane].chip_no;
 	req->phyaddr.block_no = src_blk[src_plane].block_no;
-	req->phyaddr.page_no = page;
+	req->phyaddr.page_no = page + page_offs;
 	req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
 	req->ptr_hlm_req = (void*)hlm_gc;
 	req->ret = 0;
@@ -1653,17 +1741,20 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 
 	p->read_req_count = 0;
 
-	// 1. Check Src Validity
-	if (p->src_valid_page_count == 0)
-	{
-		bdbm_page_ftl_restore_srcblk(bdi);
-		bdbm_page_ftl_alloc_srcblk(bdi);
-
+	// 1. Check Src Validpagecount
+	if (p->src_valid != 0)
+	{ 
 		if (p->src_valid_page_count == 0)
-		{	
-			// don't need to do gc. sufficient free block.
+		{
+			bdbm_page_ftl_restore_srcblk(bdi);
+			p->src_valid = 0;
 			return 0;
 		}
+	}
+	else 
+	{
+		bdbm_page_ftl_alloc_srcblk(bdi);
+		p->src_valid = 1;
 	}
 
 	average_valid = ((p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits) / np->nr_planes;
@@ -1696,7 +1787,7 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 		}
 		else
 		{
-			bdbm_bug_on(average_valid >= np->nr_subpages_per_page);
+			bdbm_bug_on(average_valid > np->nr_subpages_per_page);
 			break;
 		}
 	}
@@ -1823,7 +1914,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 
 	p->dst_offset = req->phyaddr.page_no * p->nr_punits;
 		
-//	bdbm_msg("	write page : %lld", p->src_valid_page_count);
+	bdbm_msg("write page : %lld", p->src_valid_page_count);
  
 	return 0;
 }

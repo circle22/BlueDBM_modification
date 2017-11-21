@@ -259,7 +259,8 @@ static uint8_t __ramssd_read_page (
 			if (partial == 0 && kp_stt[loop] != KP_STT_DATA) continue;
 			ptr_data_org = (uint8_t*)__get_ramssd_data_addr (ri, lpa);
 			if (memcmp (kp_ptr[loop], ptr_data_org, KPAGE_SIZE) != 0) {
-				bdbm_msg ("[DATA CORRUPTION] lpa=%llu offset=%u", lpa, loop);
+				bdbm_msg ("[READ DATA CORRUPTION] lpa=%llu offset=%u", lpa, loop);
+				bdbm_msg ("   ch: %lld, way: %lld, block =%llu page=%llu, loop:%llu", channel_no, chip_no, block_no, page_no, loop);
 				__display_hex_values (kp_ptr[loop], ptr_data_org);
 			}
 		}
@@ -750,10 +751,12 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			dev_ramssd_channel_t* ptr_channels; 
 			uint64_t count = 0;
 			uint64_t ch;
+			uint64_t dma_count = ri->np->nr_subpages_per_page * ri->np->nr_planes;
 
 			switch (r->req_type) {
-			case REQTYPE_WRITE:
 			case REQTYPE_GC_WRITE:
+				dma_count = r->dma;		
+			case REQTYPE_WRITE:
 			case REQTYPE_RMW_WRITE:
 			case REQTYPE_META_WRITE:
 
@@ -785,7 +788,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 					count = 8;
 				}*/
 #endif
-				channel_busy_time = ri->np->prog_dma_time_us[count];
+				channel_busy_time = ri->np->prog_dma_time_us[count] * dma_count;
 				
 	//			bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
 
@@ -822,8 +825,10 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				}
 #endif	// DWHONG			
 				break;
-			case REQTYPE_READ:
+
 			case REQTYPE_GC_READ:
+				dma_count = r->dma;	
+			case REQTYPE_READ:
 			case REQTYPE_RMW_READ:
 			case REQTYPE_META_READ:
 
@@ -865,9 +870,8 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 							count = 8;
 						}*/
 #endif
-						channel_busy_time = ri->np->gc_read_dma_time_us[count];
+						channel_busy_time = ri->np->gc_read_dma_time_us[count] * dma_count;
 					}
-
 				}
 
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));

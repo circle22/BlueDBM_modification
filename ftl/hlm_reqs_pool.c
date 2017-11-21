@@ -640,7 +640,9 @@ void hlm_reqs_pool_compaction(
 					// page read data
 					dst_req->fmain.kp_stt[dst_subpage] = src_req->fmain.kp_stt[subpage];
 					dst_req->fmain.kp_ptr[dst_subpage] = src_req->fmain.kp_ptr[subpage];
-					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
+//					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
+					((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[subpage];
+
 				}
 				else
 				{
@@ -652,7 +654,8 @@ void hlm_reqs_pool_compaction(
 						{
 							dst_req->fmain.kp_stt[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_stt[src_subpage];
 							dst_req->fmain.kp_ptr[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_ptr[src_subpage];
-							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
+//							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
+							((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[src_subpage];
 
 							data_copy = 1;
 							dst_req->dma++;

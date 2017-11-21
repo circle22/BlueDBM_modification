@@ -163,6 +163,8 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[7] = 96;
 	p.prog_dma_time_us[8] = 112;
 #else
+
+/*
 	p.gc_read_dma_time_us[0] = 27;
 	p.gc_read_dma_time_us[1] = 27;
 	p.gc_read_dma_time_us[2] = 27;
@@ -185,6 +187,28 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[6] = 43;
 	p.prog_dma_time_us[7] = 49;
 	p.prog_dma_time_us[8] = 57;
+*/
+	p.gc_read_dma_time_us[0] = 7;
+	p.gc_read_dma_time_us[1] = 7;
+	p.gc_read_dma_time_us[2] = 7;
+	p.gc_read_dma_time_us[3] = 7;
+	p.gc_read_dma_time_us[4] = 7;
+	p.gc_read_dma_time_us[5] = 9;
+	p.gc_read_dma_time_us[6] = 10;
+	p.gc_read_dma_time_us[7] = 12;
+	p.gc_read_dma_time_us[8] = 14;
+
+	p.page_read_time_us = 50;	// tR 50us.
+
+	p.prog_dma_time_us[0] = 7;
+	p.prog_dma_time_us[1] = 7;
+	p.prog_dma_time_us[2] = 7;
+	p.prog_dma_time_us[3] = 7;
+	p.prog_dma_time_us[4] = 7;
+	p.prog_dma_time_us[5] = 9;
+	p.prog_dma_time_us[6] = 10;
+	p.prog_dma_time_us[7] = 12;
+	p.prog_dma_time_us[8] = 14;
 #endif
 
 
