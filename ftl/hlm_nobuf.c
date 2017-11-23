@@ -226,7 +226,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 					//	bdbm_msg("dummy read");
 					} else {
 						hlm_reqs_pool_relocate_kp (lr, sp_ofs);
-					//	bdbm_msg("normal read");
+//						bdbm_msg("normal read : %lld", lr->logaddr.lpa[0]);
 					}
 				}
 			} else if (bdbm_is_write (lr->req_type)) {

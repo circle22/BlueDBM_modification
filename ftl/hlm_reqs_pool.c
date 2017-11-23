@@ -604,7 +604,7 @@ void hlm_reqs_pool_copy(
 	}
 }
 
-void hlm_reqs_pool_compaction(
+uint64_t hlm_reqs_pool_compaction(
 	bdbm_hlm_req_gc_t* dst,
 	bdbm_hlm_req_gc_t* src,
 	bdbm_device_params_t* np,
@@ -616,6 +616,7 @@ void hlm_reqs_pool_compaction(
 	uint64_t src_idx = nr_punits * np->nr_planes;
 	uint64_t src_subpage = 0;
 	uint64_t plane;
+	uint64_t valid_page_count = 0;
 		
 	bdbm_llm_req_t* dst_req;
 	bdbm_llm_req_t* src_req;
@@ -627,8 +628,15 @@ void hlm_reqs_pool_compaction(
 		hlm_reqs_pool_reset_fmain (&dst_req->fmain);
 
 		for (plane = 0; plane < np->nr_planes; plane++)
-		{	
-			src_req = &src->llm_reqs[plane*nr_punits + unit];
+		{
+			uint64_t req_idx = plane*nr_punits + unit;
+	
+			if (req_idx >= read_req_count)
+			{
+				continue;
+			}
+
+			src_req = &src->llm_reqs[req_idx];
 			dst_req->dma += src_req->dma;
 			
 			for (subpage = 0; subpage < np->nr_subpages_per_page; subpage++)
@@ -640,9 +648,10 @@ void hlm_reqs_pool_compaction(
 					// page read data
 					dst_req->fmain.kp_stt[dst_subpage] = src_req->fmain.kp_stt[subpage];
 					dst_req->fmain.kp_ptr[dst_subpage] = src_req->fmain.kp_ptr[subpage];
-//					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
+					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
 					((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[subpage];
 
+					valid_page_count++;
 				}
 				else
 				{
@@ -654,11 +663,13 @@ void hlm_reqs_pool_compaction(
 						{
 							dst_req->fmain.kp_stt[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_stt[src_subpage];
 							dst_req->fmain.kp_ptr[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_ptr[src_subpage];
-//							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
-							((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[src_subpage];
+							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
+							((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src->llm_reqs[src_idx].foob.data)[src_subpage];
 
 							data_copy = 1;
 							dst_req->dma++;
+
+							valid_page_count++;
 						}
 
 						src_subpage++;
@@ -681,6 +692,8 @@ void hlm_reqs_pool_compaction(
 	}
 
 	bdbm_bug_on(src_idx+1 < read_req_count);
+
+	return valid_page_count;
 }
 
 
