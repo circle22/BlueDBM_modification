@@ -609,11 +609,13 @@ uint64_t hlm_reqs_pool_compaction(
 	bdbm_hlm_req_gc_t* src,
 	bdbm_device_params_t* np,
 	uint64_t dst_offset,
-	uint64_t read_req_count)
+	uint64_t* pHead_idx,
+	uint64_t tail_idx,
+	uint64_t* pCount)
 {
 	uint64_t subpage, unit;
 	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
-	uint64_t src_idx = nr_punits * np->nr_planes;
+
 	uint64_t src_subpage = 0;
 	uint64_t plane;
 	uint64_t valid_page_count = 0;
@@ -631,11 +633,6 @@ uint64_t hlm_reqs_pool_compaction(
 		{
 			uint64_t req_idx = plane*nr_punits + unit;
 	
-			if (req_idx >= read_req_count)
-			{
-				continue;
-			}
-
 			src_req = &src->llm_reqs[req_idx];
 			dst_req->dma += src_req->dma;
 			
@@ -655,16 +652,26 @@ uint64_t hlm_reqs_pool_compaction(
 				}
 				else
 				{
+					uint64_t src_idx = *pHead_idx;
 					// partial page read data
-					while (src_idx < read_req_count)
+					while (src_idx != tail_idx)
 					{
 						uint64_t data_copy = 0;
+
+						if (src_idx == nr_punits*10) // check end index of buffered data
+						{
+							src_idx = nr_punits * np->nr_planes; // move to start of buffered data.
+						}
+						
 						if (src->llm_reqs[src_idx].fmain.kp_stt[src_subpage] == KP_STT_DATA)
 						{
 							dst_req->fmain.kp_stt[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_stt[src_subpage];
 							dst_req->fmain.kp_ptr[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_ptr[src_subpage];
 							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
 							((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src->llm_reqs[src_idx].foob.data)[src_subpage];
+
+							src->llm_reqs[src_idx].fmain.kp_stt[src_subpage] = KP_STT_HOLE;
+							(*pCount)--;
 
 							data_copy = 1;
 							dst_req->dma++;
@@ -681,6 +688,7 @@ uint64_t hlm_reqs_pool_compaction(
 
 						if (data_copy != 0)
 						{
+							*pHead_idx = src_idx
 							break;
 						}
 					}					
@@ -690,8 +698,6 @@ uint64_t hlm_reqs_pool_compaction(
 		}
 		// copy dst_req is done.
 	}
-
-	bdbm_bug_on(src_idx+1 < read_req_count);
 
 	return valid_page_count;
 }
