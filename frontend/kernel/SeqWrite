@@ -6,7 +6,7 @@ directory=/media/blueDBM/
 ioengine=libaio
 iodepth=4
 runtime=120
-size=1GB
+size=3500MB
 
 
 [write0]

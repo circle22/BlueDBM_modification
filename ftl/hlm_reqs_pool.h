@@ -56,10 +56,4 @@ void hlm_reqs_pool_write_compaction (bdbm_hlm_req_gc_t* dst, bdbm_hlm_req_gc_t* 
 void hlm_reqs_pool_copy(bdbm_hlm_req_gc_t* dst, bdbm_hlm_req_gc_t* src, bdbm_device_params_t* np, uint64_t dst_offset);
 uint64_t hlm_reqs_pool_compaction(bdbm_hlm_req_gc_t* dst, bdbm_hlm_req_gc_t* src, bdbm_device_params_t* np, uint64_t dst_offset, uint64_t* pHead_idx, uint64_t tail_idx, uint64_t* pCount);
 
-bdbm_hlm_req_gc_t* dst,
-bdbm_hlm_req_gc_t* src,
-bdbm_device_params_t* np,
-uint64_t dst_offset,
-
-
 #endif

@@ -205,6 +205,11 @@ uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	}
 }
 
+void _display_hex_values (uint8_t* host)
+{
+	bdbm_msg (" * HOST: %x %x %x %x %x", host[0], host[1], host[2], host[3], host[4]);
+}
+
 uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 {
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
@@ -232,6 +237,13 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			} else if (bdbm_is_write (lr->req_type)) {
 				if(lr->logaddr.ofs != -1)
 				{
+					if ((lr->logaddr.lpa[0] == 709815) || (lr->logaddr.lpa[0] == 453494) || (lr->logaddr.lpa[0] == 373188) || (lr->logaddr.lpa[0] == 289145))
+					{
+						bdbm_msg("host req : %lld", lr->logaddr.lpa[0]);
+
+						_display_hex_values(lr->fmain.kp_ptr[0]);
+					}
+	
 					//bdbm_msg("partial write");
 					if(__hlm_buffered_write(bdi, lr) == BDBM_MAX_PAGES){
 						//bdbm_msg("partial write - flush");

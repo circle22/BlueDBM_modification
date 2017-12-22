@@ -355,11 +355,6 @@ static int __hlm_reqs_pool_create_write_req (
 			ptr_lr->logaddr.lpa[j] = sec_start / NR_KSECTORS_IN(pool->map_unit);
 			ptr_lr->logaddr.ofs = -1;
 
-			if (  ptr_lr->logaddr.lpa[j] == 0)
-			{
-				bdbm_msg("create write req : lpn %lld, idx : %lld",  ptr_lr->logaddr.lpa[j], j);
-			}
-
 			for (k = 0; k < NR_KPAGES_IN(pool->map_unit); k++) {
 				uint64_t pg_off = sec_start / NR_KSECTORS_IN(KPAGE_SIZE);
 
@@ -506,11 +501,6 @@ static int __hlm_reqs_pool_create_read_req (
 		else
 			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
 		ptr_lr->ptr_hlm_req = (void*)hr;
-
-		if (ptr_lr->logaddr.lpa[0] == 0)
-		{	
-			bdbm_msg("create read req : lpn %lld, offset : %lld",  ptr_lr->logaddr.lpa[0], offset);
-		}
 
 		/* go to the next */
 		pg_start++;
@@ -688,7 +678,7 @@ uint64_t hlm_reqs_pool_compaction(
 
 						if (data_copy != 0)
 						{
-							*pHead_idx = src_idx
+							*pHead_idx = src_idx;
 							break;
 						}
 					}					
