@@ -1050,11 +1050,21 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 
 	uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
 	uint64_t plane;
-	uint64_t max_invalid_pages = 0;
 	uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes * p->nr_punits; 
 
 	static uint64_t valid_victim = 0;
 	static uint64_t victim_blk_no = 0;
+
+	uint64_t index;
+	uint64_t anMax_invalid_pages[MAX_COPY_BACK];
+	bdbm_abm_block_t* apVictim[MAX_COPY_BACK]; 
+	uint64_t max_invalid = 0;
+
+	for (index = 0; index < MAX_COPY_BACK; index++)
+	{
+		anMax_invalid_pages[index] = 0;
+		apVictim[index] = NULL;
+	}
 
 	if (valid_victim != 0)
 	{	
@@ -1071,6 +1081,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_abm_list_for_each_dirty_block (pos, p->bai, 0, 0) 
 	{
 		uint64_t invalid_pages = 0;
+		uint64_t blk_info;
 		bdbm_abm_block_t* block = bdbm_abm_fetch_dirty_block (pos);
 
 		for (plane = 0; plane < np->nr_planes; plane++)
@@ -1097,18 +1108,45 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 			break;
 		}
 		
-		if (victim == NULL) 
+		blk_info = block->copy_count;
+		if (apVictim[blk_info] == NULL)
 		{
-			victim = block;
-			max_invalid_pages = invalid_pages;
+			apVictim[blk_info] = block;
+			anMax_invalid_pages[blk_info] = invalid_pages;
 			continue;
 		}
-		
-		if (invalid_pages > max_invalid_pages)
+
+		if (invalid_pages > anMax_invalid_pages[blk_info])
 		{
-			victim = block;
-			max_invalid_pages = invalid_pages;
+			apVictim[blk_info] = block;
+			anMax_invalid_pages[blk_info] = invalid_pages;
 		}
+	}
+
+	for (index = 0; index < MAX_COPY_BACK; index++)
+	{	
+		uint64_t dst_idx;
+		uint64_t cost;
+
+		if (apVictim[index] == NULL)
+		{
+			continue;
+		}
+
+		dst_idx = index + 1;
+		if (dst_idx == MAX_COPY_BACK)
+		{
+			dst_idx = 0;
+		}
+
+		cost = anMax_invalid_pages[index] 
+			+ (np->nr_pages_per_block - p->gc_dst_blk_offs[dst_idx][0])*GC_FACTOR / np->nr_pages_per_block;
+		
+		if (max_invalid < cost)
+		{
+			max_invalid = cost;
+			victim = apVictim[index];
+		}		
 	}
 
 	valid_victim = 1;
@@ -1981,7 +2019,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 */
 	p->dst_offset = req->phyaddr.page_no * p->nr_punits;
 		
-	bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no,p->src_valid_page_count);
+//	bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no,p->src_valid_page_count);
 
 /*	bdbm_msg("write pageoff : %lld,  %lld %lld %lld %lld , %lld", req->phyaddr.page_no,
 	p->gc_dst_bab[dst_index][0]->nr_invalid_subpages,

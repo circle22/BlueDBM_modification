@@ -27,12 +27,13 @@ THE SOFTWARE.
 
 #define DWHONG	// Test
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
-#define MAX_COPY_BACK	(0 + 1) // +1 is used for default or external copyback case
+#define MAX_COPY_BACK	(4 + 1) // +1 is used for default or external copyback case
 #define PLANE_NUMBER	(2)
+#define GC_FACTOR		(4)
 //#define PLANE_NUMBER	(2)
 
 #define GC_HIGH_THRESHOLD	(10)
-#define GC_THRESHOLD		(2 + MAX_COPY_BACK)
+#define GC_THRESHOLD		(3) // + MAX_COPY_BACK)
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE
