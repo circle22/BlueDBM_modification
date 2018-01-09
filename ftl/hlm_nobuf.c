@@ -60,7 +60,7 @@ bdbm_hlm_inf_t _hlm_nobuf_inf = {
 
 /* data structures for hlm_nobuf */
 typedef struct {
-	bdbm_hlm_req_t tmp_hr;
+	bdbm_llm_req_t* buffered_lr;
     uint8_t* buf[BDBM_MAX_PAGES];
     uint64_t oob[BDBM_MAX_PAGES];
     uint8_t cur_buf_ofs;
@@ -80,11 +80,12 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 		return 1;
 	}
 
-    for (i = 0; i < BDBM_MAX_PAGES; i++){
-        p->buf[i] = (uint8_t*)bdbm_malloc(KPAGE_SIZE);
-        p->oob[i] = -1;
+	for (i = 0; i < BDBM_MAX_PAGES; i++){
+		p->buf[i] = (uint8_t*)bdbm_malloc(KPAGE_SIZE);
+		p->oob[i] = -1;
     }
-    p->cur_buf_ofs = 0;
+	p->buffered_lr = NULL;
+	p->cur_buf_ofs = 0;
 
 	/* keep the private structure */
 	bdi->ptr_hlm_inf->ptr_private = (void*)p;
@@ -167,40 +168,48 @@ uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
 	int i = 0, same = -1;
-	
-	for(i = 0; i < p->cur_buf_ofs; i++){
-		if(p->oob[i] == lr->logaddr.lpa[lr->logaddr.ofs])
-		    same = i;
-	}
+	uint64_t registered = 0;
 
-	if(same == -1){
-		bdbm_memcpy (p->buf[p->cur_buf_ofs], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
-		p->oob[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
-		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
-	}else{
-		bdbm_memcpy (p->buf[same], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
-		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
-		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
-		return p->cur_buf_ofs;
+	if (p->cur_buf_ofs == 0)
+	{
+		p->buffered_lr = lr;
+		registered = 1;
 	}
-
-	if(p->cur_buf_ofs + 1 == BDBM_MAX_PAGES){
-		for(i = 0; i < BDBM_MAX_PAGES; i++){
-			lr->fmain.kp_ptr[i] = lr->fmain.kp_pad[i];
-			bdbm_memcpy (lr->fmain.kp_ptr[i], p->buf[i], KPAGE_SIZE);
-			lr->fmain.kp_stt[i] = KP_STT_DATA;
-			lr->logaddr.lpa[i] = p->oob[i];
-			p->oob[i] = -1;
+	else
+	{
+		for(i = 0; i < p->cur_buf_ofs; i++){
+			if(p->buffered_lr->logaddr.lpa[i] == lr->logaddr.lpa[lr->logaddr.ofs])
+				same = i;
 		}
-		p->cur_buf_ofs = 0;
-		return BDBM_MAX_PAGES;
-	}else{ 
+	}
+
+	if (same == -1)
+	{
+		p->buffered_lr->fmain.kp_ptr[p->cur_buf_ofs] = lr->fmain.kp_ptr[lr->logaddr.ofs];
+		p->buffered_lr->logaddr.lpa[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
+		((int64_t*)p->buffered_lr->foob.data)[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];		
+		p->buffered_lr->fmain.kp_stt[p->cur_buf_ofs] = KP_STT_DATA;
+
+		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
+		p->cur_buf_ofs++;
+	}
+	else
+	{
+		p->buffered_lr->fmain.kp_ptr[same] = lr->fmain.kp_ptr[lr->logaddr.ofs];
+	}
+
+	if (p->buffered_lr != lr)
+	{
 		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
 		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
-		p->cur_buf_ofs++;
+	}
 
-		// call back ???
-
+	if (registered == 1)
+	{
+		return 0;
+	}
+	else
+	{
 		return p->cur_buf_ofs;
 	}
 }
@@ -216,6 +225,9 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
 	bdbm_llm_req_t* lr = NULL;
 	uint64_t i = 0, j = 0, sp_ofs;
+
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);	
+	uint64_t registered_idx = 0xFF;
 
 	/* perform mapping with the FTL */
 	bdbm_hlm_for_each_llm_req (lr, hr, i) {
@@ -237,25 +249,33 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			} else if (bdbm_is_write (lr->req_type)) {
 				if(lr->logaddr.ofs != -1)
 				{
-					if ((lr->logaddr.lpa[0] == 709815) || (lr->logaddr.lpa[0] == 453494) || (lr->logaddr.lpa[0] == 373188) || (lr->logaddr.lpa[0] == 289145))
+					uint32_t ret = __hlm_buffered_write(bdi, lr); 
+					if (ret == 0)
 					{
-						bdbm_msg("host req : %lld", lr->logaddr.lpa[0]);
-
-						_display_hex_values(lr->fmain.kp_ptr[0]);
+						registered_idx = i;
 					}
-	
-					//bdbm_msg("partial write");
-					if(__hlm_buffered_write(bdi, lr) == BDBM_MAX_PAGES){
+					else if(ret == BDBM_MAX_PAGES){
 						//bdbm_msg("partial write - flush");
-						if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
+						if (ftl->get_free_ppa (bdi, p->buffered_lr->logaddr.lpa[0], &p->buffered_lr->phyaddr) != 0)
+						{
 							bdbm_error ("`ftl->get_free_ppa' failed");
 							goto fail;
 						}
-						
-						if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
+
+						if (ftl->map_lpa_to_ppa (bdi, &(p->buffered_lr->logaddr), &(p->buffered_lr->phyaddr)) != 0) 
+						{
 							bdbm_error ("`ftl->map_lpa_to_ppa' failed");
 							goto fail;
 						}
+
+						/* send individual llm-reqs to llm */
+						if (bdi->ptr_llm_inf->make_req (bdi, p->buffered_lr) != 0) {
+							bdbm_error ("oops! make_req () failed");
+							bdbm_bug_on (1);
+						}
+						
+						p->buffered_lr = NULL;
+						p->cur_buf_ofs = 0;
 					}
 				}
                 else{
@@ -314,6 +334,12 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	if (bdi->ptr_llm_inf->make_reqs == NULL) {
 		/* send individual llm-reqs to llm */
 		bdbm_hlm_for_each_llm_req (lr, hr, i) {
+			if (i == registered_idx)
+			{
+				// this llm request is used for buffering
+				continue;
+			}
+
 			if (bdi->ptr_llm_inf->make_req (bdi, lr) != 0) {
 				bdbm_error ("oops! make_req () failed");
 				bdbm_bug_on (1);
@@ -328,7 +354,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	}
 
 	bdbm_bug_on (hr->nr_llm_reqs != i);
-
+	
 	return 0;
 
 fail:
@@ -399,7 +425,7 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	bdbm_stopwatch_start (&sw);
 
 	/* is req_type correct? */
-	bdbm_bug_on (!bdbm_is_normal (hr->req_type));
+//	bdbm_bug_on (!bdbm_is_normal (hr->req_type));
 
 #if 0
 	/* trigger gc if necessary */
@@ -468,7 +494,8 @@ void hlm_nobuf_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 {
 	if (bdbm_is_gc (lr->req_type)) {
 		__hlm_nobuf_end_gcio_req (bdi, lr);
-	} else {
+	}
+	else {
 		__hlm_nobuf_end_blkio_req (bdi, lr);
 	}
 }

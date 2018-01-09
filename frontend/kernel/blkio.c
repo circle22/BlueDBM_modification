@@ -208,6 +208,7 @@ void blkio_make_req (bdbm_drv_info_t* bdi, void* bio)
 		goto fail;
 	}
 
+
 	/* lock a global mutex -- this function must be finished as soon as possible */
 	bdbm_sema_lock (&p->host_lock);
 
@@ -227,6 +228,11 @@ void blkio_make_req (bdbm_drv_info_t* bdi, void* bio)
 	/* ulock a global mutex */
 	bdbm_sema_unlock (&p->host_lock);
 
+	if (bdbm_is_flush(hr->req_type))
+	{
+		blkio_end_req(bdi, hr);
+	}
+
 	return;
 
 fail:
@@ -241,22 +247,35 @@ void blkio_end_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	bdbm_blkio_private_t* p = (bdbm_blkio_private_t*)BDBM_HOST_PRIV(bdi);
 	bdbm_blkio_req_t* br = (bdbm_blkio_req_t*)hr->blkio_req;
 
-	/* end bio */
-	if (hr->ret == 0)
-		bio_endio ((struct bio*)br->bio, 0);
-	else {
-		bdbm_warning ("oops! make_req () failed with %d", hr->ret);
-		bio_endio ((struct bio*)br->bio, -EIO);
+	if (br != NULL)
+	{
+		/* end bio */
+		if (hr->ret == 0)
+			bio_endio ((struct bio*)br->bio, 0);
+		else {
+			bdbm_warning ("oops! make_req () failed with %d", hr->ret);
+			bio_endio ((struct bio*)br->bio, -EIO);
+		}
+
+		/* free blkio_req */
+		__free_blkio_req (br);
+
+		/* destroy hlm_req */	
+		if (bdbm_is_flush(hr->req_type) == 0)
+		{
+			// hlm_req is used by writeback mode
+			bdbm_hlm_reqs_pool_free_item (p->hlm_reqs_pool, hr);
+		}
+
+		/* decreate # of reqs */
+		atomic_dec (&p->nr_host_reqs);
+
+		hr->blkio_req = NULL;	
 	}
-
-	/* free blkio_req */
-	__free_blkio_req (br);
-
-	/* destroy hlm_req */
-	bdbm_hlm_reqs_pool_free_item (p->hlm_reqs_pool, hr);
-
-	/* decreate # of reqs */
-	atomic_dec (&p->nr_host_reqs);
+	else
+	{
+		bdbm_hlm_reqs_pool_free_item (p->hlm_reqs_pool, hr);
+	}
 }
 
 

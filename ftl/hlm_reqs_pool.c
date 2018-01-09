@@ -41,7 +41,7 @@ THE SOFTWARE.
 #include "umemory.h"
 
 
-#define DEFAULT_POOL_SIZE		128
+#define DEFAULT_POOL_SIZE		256
 #define DEFAULT_POOL_INC_SIZE	DEFAULT_POOL_SIZE / 5
 
 bdbm_hlm_reqs_pool_t* bdbm_hlm_reqs_pool_create (
@@ -342,6 +342,7 @@ static int __hlm_reqs_pool_create_write_req (
 	bdbm_bug_on (nr_llm_reqs > BDBM_BLKIO_MAX_VECS);
 
 	ptr_lr = &hr->llm_reqs[0];
+
 	for (i = 0; i < nr_llm_reqs; i++) {
 		int fm_ofs = 0;
 
@@ -364,7 +365,8 @@ static int __hlm_reqs_pool_create_write_req (
 						bdbm_msg ("%lld %lld", bvec_cnt, br->bi_bvec_cnt);
 					}
 					ptr_fm->kp_stt[fm_ofs] = KP_STT_DATA;
-					ptr_fm->kp_ptr[fm_ofs] = br->bi_bvec_ptr[bvec_cnt++]; /* assign actual data */
+//					ptr_fm->kp_ptr[fm_ofs] = br->bi_bvec_ptr[bvec_cnt++]; /* assign actual data */
+					bdbm_memcpy (ptr_fm->kp_ptr[fm_ofs] , br->bi_bvec_ptr[bvec_cnt++], KPAGE_SIZE); // acutal data copy
 				} else {
 					hole++;
 				}
@@ -379,7 +381,9 @@ static int __hlm_reqs_pool_create_write_req (
         }
 
 		/* decide the reqtype for llm_req */
+//		ptr_lr->req_type = REQTYPE_WRITE;
 		ptr_lr->req_type = REQTYPE_WRITE;
+
 		if (hole == 1 && pool->in_place_rmw && br->bi_rw == REQTYPE_WRITE) {
 			/* NOTE: if there are holes and map-unit is equal to io-unit, we
 			*           * should perform old-fashioned RMW operations */
@@ -438,7 +442,9 @@ static int __hlm_reqs_pool_create_write_req (
     }
 
     /* intialize hlm_req */
-    hr->req_type = br->bi_rw;
+//    hr->req_type = br->bi_rw;
+    hr->req_type = REQTYPE_FLUSH_WRITE;
+
     bdbm_stopwatch_start (&hr->sw);
     hr->nr_llm_reqs = nr_llm_reqs + add;
     atomic64_set (&hr->nr_llm_reqs_done, 0);

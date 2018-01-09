@@ -101,7 +101,7 @@ enum BDBM_REQTYPE {
 	REQTYPE_META 			= 0x000800,
 	REQTYPE_FUA				= 0x001000,
 	REQTYPE_SYNC			= 0x002000,
-
+	REQTYPE_FLUSH			= 0x004000,
 
 	REQTYPE_READ 			= REQTYPE_NORNAL 	| REQTYPE_IO_READ,
 	REQTYPE_READ_DUMMY 		= REQTYPE_NORNAL 	| REQTYPE_IO_READ_DUMMY,
@@ -114,12 +114,14 @@ enum BDBM_REQTYPE {
 	REQTYPE_GC_ERASE 		= REQTYPE_GC 		| REQTYPE_IO_ERASE,
 	REQTYPE_META_READ 		= REQTYPE_META 		| REQTYPE_IO_READ,
 	REQTYPE_META_WRITE 		= REQTYPE_META 		| REQTYPE_IO_WRITE,
+	REQTYPE_FLUSH_WRITE		= REQTYPE_FLUSH		| REQTYPE_IO_WRITE,
 };
 
 #define bdbm_is_normal(type) (((type & REQTYPE_NORNAL) == REQTYPE_NORNAL) ? 1 : 0)
 #define bdbm_is_rmw(type) (((type & REQTYPE_RMW) == REQTYPE_RMW) ? 1 : 0)
 #define bdbm_is_gc(type) (((type & REQTYPE_GC) == REQTYPE_GC) ? 1 : 0)
 #define bdbm_is_meta(type) (((type & REQTYPE_META) == REQTYPE_META) ? 1 : 0)
+#define bdbm_is_flush(type) (((type & REQTYPE_FLUSH) == REQTYPE_FLUSH) ? 1 : 0)
 #define bdbm_is_read(type) (((type & REQTYPE_IO_READ) == REQTYPE_IO_READ) ? 1 : 0)
 #define bdbm_is_write(type) (((type & REQTYPE_IO_WRITE) == REQTYPE_IO_WRITE) ? 1 : 0)
 #define bdbm_is_erase(type) (((type & REQTYPE_IO_ERASE) == REQTYPE_IO_ERASE) ? 1 : 0)
