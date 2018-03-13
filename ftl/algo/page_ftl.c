@@ -139,6 +139,8 @@ typedef struct {
 	uint64_t gc_copy_count;
 	uint64_t nop_count;
 
+	uint64_t gc_count;
+
 } bdbm_page_ftl_private_t;
 
 
@@ -421,6 +423,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	//p->src_unit_idx[0];
 	p->gc_copy_count = 0;
 	p->nop_count = 0;
+	p->gc_count = 0;
 
 	return 0;
 }
@@ -455,11 +458,13 @@ void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi)
 void bdbm_page_ftl_print_llm(bdbm_llm_req_t* llm_reqs, uint64_t size)
 {
 	uint64_t index;
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
 	for (index = 0; index < size; index++)
 	{
 		if (llm_reqs[index].req_type != 0)
 		{
-			bdbm_msg("index: %lld, reqType:%llx, ch:%lld, way:%lld, blk:%lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.chip_no, llm_reqs[index].phyaddr.block_no);
+			bdbm_msg("index: %lld, reqType:%llx, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.chip_no, p->gc_count);
 		}
 	}
 }
@@ -628,7 +633,7 @@ void bdbm_page_ftl_print_copyback_info(bdbm_drv_info_t* bdi)
 	}
 #else
 
-	bdbm_msg(" Blk_distribution:%lld,%lld,%lld,%lld,%lld,%lld", p->block_info[0],p->block_info[1],p->block_info[2],p->block_info[3],p->block_info[4],p->block_info[5]);
+	bdbm_msg(" Blk_distribution:%lld,%lld,%lld,%lld,%lld,%lld, gc %lld", p->block_info[0],p->block_info[1],p->block_info[2],p->block_info[3],p->block_info[4],p->block_info[5], p->gc_count );
 
 #endif
 
@@ -686,7 +691,7 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			
 			//bdbm_page_ftl_print_hostWrite();
 
-			bdbm_page_ftl_print_WAF();
+//			bdbm_page_ftl_print_WAF();
 		//	bdbm_page_ftl_print_totalEC(bdi);
 		//	bdbm_msg("Alloc_HostFreeBlk");
 			bdbm_page_ftl_print_copyback_info(bdi);
@@ -736,6 +741,11 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			}
 		}
 	
+		if (unit == 0)
+		{
+//			bdbm_msg("Dest blk : cpcnt:%lld, free:%lld, plane0:%lld, page1:%lld", copy_count, p->bai->nr_free_blks, p->bai->anr_free_blks[0][0], p->bai->anr_free_blks[1][0]);		
+		}
+
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
 			b = bdbm_abm_get_free_block_prepare (p->bai, ch, way);
@@ -762,7 +772,7 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 
 		if (unit == 0)
 		{
-			bdbm_msg("Dest blk : %llu", b->block_no); 	
+//			bdbm_msg("Dest blk : %llu", b->block_no);			
 		}
 	}
 
@@ -1139,8 +1149,20 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 			dst_idx = 0;
 		}
 
-		cost = anMax_invalid_pages[index] 
-			+ (np->nr_pages_per_block - p->gc_dst_blk_offs[dst_idx][0])*GC_FACTOR / np->nr_pages_per_block;
+		
+		cost = anMax_invalid_pages[index];
+
+#if 0
+		if (p->gc_count > 18000)
+		{
+		//	if ( (p->gc_count < 18500) && (dst_idx == 0))
+			if ( (p->gc_count < 18500) && (dst_idx == 0))
+			{
+				cost = cost*7/10; // avoid high costg victim.	
+			}		
+		}
+#endif
+//		cost = anMax_invalid_pages[index] + (np->nr_pages_per_block - p->gc_dst_blk_offs[dst_idx][0])*GC_FACTOR / np->nr_pages_per_block;
 		
 		if (max_invalid < cost)
 		{
@@ -1450,9 +1472,16 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 			p->dst_index = 0;
 		}
 
-		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
+#if 0
+		if ((p->gc_count > 22000) && (p->gc_count < 24000))
+		{
+			p->dst_index = 0;
+		}
+#endif
+
+//		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-//		bdbm_msg("Alloc Src : %lld, %lld, %lld", p->src_valid_page_count, hlm_gc->nr_llm_reqs - atomic64_read(&hlm_gc->nr_llm_reqs_done), hlm_gc_w->nr_llm_reqs - atomic64_read(&hlm_gc_w->nr_llm_reqs_done)); 
+		bdbm_msg("GC %lld, Alloc Src %lld", p->gc_count, p->src_valid_page_count); 
 	}
 
 
@@ -1528,6 +1557,13 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 		refresh = 1; // utilize internal copyback
 	}
 
+#if 0		
+	if ((p->gc_count > 22000) && (p->gc_count < 24000))
+	{
+		refresh = 1;
+	}
+#endif
+	
 	p->src_unit_idx[plane][unit] = 0xFF;
 	p->src_plane_idx[plane][unit] = 0xFF;
 	
@@ -1680,7 +1716,8 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	{
 		bdbm_msg("valid page : %lld, plane: %lld, unit:%lld, page:%lld, pageoff:%lld,", valid_subpage_count, plane, unit, page, page_offs);
 	}
-	return valid_count;
+
+	return valid_subpage_count - valid_count;
 }
 
 
@@ -1892,6 +1929,8 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 		{
 			bdbm_page_ftl_restore_srcblk(bdi);
 			p->src_valid = 0;
+			p->gc_count++;
+
 			return 0;
 		}
 	}
@@ -1911,7 +1950,7 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 	{
 		uint64_t required_page_count = 0;
 
-		if (p->buffered_subpage_count >  p->required_subpage_count*2)
+		if (p->buffered_subpage_count >  p->required_subpage_count)
 		{
 			break;
 		}
@@ -1939,14 +1978,17 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 	}
 
 	// 3. read nr_punits page - as large as possible
+	uint64_t valid_subpage = 0;
 	for (plane = 0; plane < np->nr_planes; plane++)
 	{
 		for (unit = 0; unit < p->nr_punits; unit++)
 		{
-			uint64_t valid_page;
-			valid_page = bdbm_page_ftl_gc_read_page(bdi, unit, plane, average_valid);
+			valid_subpage += bdbm_page_ftl_gc_read_page(bdi, unit, plane, average_valid);
 		}								
 	}
+
+//	bdbm_msg(" valid diff, %lld, %lld, b %lld, r %lld", p->src_valid_page_count, valid_subpage, p->buffered_subpage_count, p->required_subpage_count);
+	p->src_valid_page_count = valid_subpage;
 
 	return 1;
 }
@@ -2032,7 +2074,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 	}
 
 	p->gc_copy_count += p->gc_subpages_move_unit;
-	p->src_valid_page_count -= valid_page_count;
+//	p->src_valid_page_count -= valid_page_count;
 
 /* 
 	if (p->src_valid_page_count > p->gc_subpages_move_unit)

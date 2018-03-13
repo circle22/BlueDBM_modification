@@ -44,6 +44,126 @@ THE SOFTWARE.
 #define DEFAULT_POOL_SIZE		256
 #define DEFAULT_POOL_INC_SIZE	DEFAULT_POOL_SIZE / 5
 
+
+uint64_t g_anReqCount[2][257] = {0, };
+uint64_t g_anTotal[2] = {0};
+
+#define MAX_REQUEST_ARRAY		1500
+uint16_t* gp_write_request;
+uint64_t  g_nTotal_write;
+
+
+void __hlm_req_pool_update_workload(uint64_t lpn)
+{
+	uint16_t* pCount = gp_write_request + (g_nTotal_write/32768)*64;
+	uint64_t plane = lpn % 64;
+
+	pCount[plane]++;
+	g_nTotal_write++;
+}
+
+void __hlm_req_pool_print_workload(void)
+{
+	uint64_t index;
+
+	for (index = 0; index < MAX_REQUEST_ARRAY; index++)
+	{
+		uint16_t* pCount = gp_write_request + (index)*64;
+
+		bdbm_msg("%d: %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",index,
+		pCount[0],pCount[1],pCount[2],pCount[3],pCount[4],pCount[5],pCount[6],pCount[7],
+		pCount[8],pCount[9],pCount[10],pCount[11],pCount[12],pCount[13],pCount[14],pCount[15],
+		pCount[16],pCount[17],pCount[18],pCount[19],pCount[20],pCount[21],pCount[22],pCount[23],
+		pCount[24],pCount[25],pCount[26],pCount[27],pCount[28],pCount[29],pCount[30],pCount[31],
+		pCount[32],pCount[33],pCount[34],pCount[35],pCount[36],pCount[37],pCount[38],pCount[39],
+		pCount[40],pCount[41],pCount[42],pCount[43],pCount[44],pCount[45],pCount[46],pCount[47],
+		pCount[48],pCount[49],pCount[50],pCount[51],pCount[52],pCount[53],pCount[54],pCount[55],
+		pCount[56],pCount[57],pCount[58],pCount[59],pCount[60],pCount[61],pCount[62],pCount[63]);
+/*
+		pCount[64],pCount[65],pCount[66],pCount[67],pCount[68],pCount[69],pCount[70],pCount[71],
+		pCount[72],pCount[73],pCount[74],pCount[75],pCount[76],pCount[77],pCount[78],pCount[79],
+		pCount[80],pCount[81],pCount[82],pCount[83],pCount[84],pCount[85],pCount[86],pCount[87],
+		pCount[88],pCount[89],pCount[90],pCount[91],pCount[92],pCount[93],pCount[94],pCount[95],
+		pCount[96],pCount[97],pCount[98],pCount[99],pCount[100],pCount[101],pCount[102],pCount[103],
+		pCount[104],pCount[105],pCount[106],pCount[107],pCount[108],pCount[109],pCount[110],pCount[111],
+		pCount[112],pCount[113],pCount[114],pCount[115],pCount[116],pCount[117],pCount[118],pCount[119],
+		pCount[120],pCount[121],pCount[122],pCount[123],pCount[124],pCount[125],pCount[126],pCount[127]);
+*/
+	}
+}
+
+
+
+void __hlm_req_pool_update_count(uint64_t type, uint64_t size)
+{
+	g_anTotal[type] += size;
+
+	if (size < 63)
+	{
+		g_anReqCount[type][size]++;
+	}
+	else
+	{
+		g_anReqCount[type][63]++;
+	}
+}
+
+void __hlm_reqs_pool_reset_count(void)
+{
+	uint64_t type = 2;
+	uint64_t size = 256;
+	uint64_t i, j;
+
+	for (i = 0; i < type; i++)
+	{
+		for (j = 0; j <= size; j++)
+		{
+			g_anReqCount[i][j] = 0;
+		}
+		
+		g_anTotal[i] = 0;
+	}
+}
+
+void __hlm_reqs_pool_print_count(void)
+{
+	bdbm_msg("Read Total :%lld, WriteTotal: %lld", g_anTotal[0], g_anTotal[1]);
+
+	bdbm_msg("Read:\ %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
+
+	g_anReqCount[0][0],g_anReqCount[0][1],	g_anReqCount[0][2],	g_anReqCount[0][3],	g_anReqCount[0][4],	g_anReqCount[0][5],	g_anReqCount[0][6],	g_anReqCount[0][7],
+	g_anReqCount[0][8],	g_anReqCount[0][9],	g_anReqCount[0][10],g_anReqCount[0][11],g_anReqCount[0][12],g_anReqCount[0][13],g_anReqCount[0][14],g_anReqCount[0][15],
+	g_anReqCount[0][16],g_anReqCount[0][17],g_anReqCount[0][18],g_anReqCount[0][19],g_anReqCount[0][20],g_anReqCount[0][21],g_anReqCount[0][22],g_anReqCount[0][23],
+	g_anReqCount[0][24],g_anReqCount[0][25],g_anReqCount[0][26],g_anReqCount[0][27],g_anReqCount[0][28],g_anReqCount[0][29],g_anReqCount[0][30],g_anReqCount[0][31],
+	g_anReqCount[0][32],g_anReqCount[0][33],g_anReqCount[0][34],g_anReqCount[0][35],g_anReqCount[0][36],g_anReqCount[0][37],g_anReqCount[0][38],g_anReqCount[0][39],
+	g_anReqCount[0][40],g_anReqCount[0][41],g_anReqCount[0][42],g_anReqCount[0][43],g_anReqCount[0][44],g_anReqCount[0][45],g_anReqCount[0][46],g_anReqCount[0][47],
+	g_anReqCount[0][48],g_anReqCount[0][49],g_anReqCount[0][50],g_anReqCount[0][51],g_anReqCount[0][52],g_anReqCount[0][53],g_anReqCount[0][54],g_anReqCount[0][55],
+	g_anReqCount[0][56],g_anReqCount[0][57],g_anReqCount[0][58],g_anReqCount[0][59],g_anReqCount[0][60],g_anReqCount[0][61],g_anReqCount[0][62],g_anReqCount[0][63]);
+
+	bdbm_msg("Write:\ 
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
+	
+	g_anReqCount[1][0],g_anReqCount[1][1],g_anReqCount[1][2],g_anReqCount[1][3],g_anReqCount[1][4],g_anReqCount[1][5],g_anReqCount[1][6],g_anReqCount[1][7],
+	g_anReqCount[1][8],g_anReqCount[1][9],g_anReqCount[1][10],g_anReqCount[1][11],g_anReqCount[1][12],g_anReqCount[1][13],g_anReqCount[1][14],g_anReqCount[1][15],
+	g_anReqCount[1][16],g_anReqCount[1][17],g_anReqCount[1][18],g_anReqCount[1][19],g_anReqCount[1][20],g_anReqCount[1][21],g_anReqCount[1][22],g_anReqCount[1][23],
+	g_anReqCount[1][24],g_anReqCount[1][25],g_anReqCount[1][26],g_anReqCount[1][27],g_anReqCount[1][28],g_anReqCount[1][29],g_anReqCount[1][30],g_anReqCount[1][31],
+	g_anReqCount[1][32],g_anReqCount[1][33],g_anReqCount[1][34],g_anReqCount[1][35],g_anReqCount[1][36],g_anReqCount[1][37],g_anReqCount[1][38],g_anReqCount[1][39],
+	g_anReqCount[1][40],g_anReqCount[1][41],g_anReqCount[1][42],g_anReqCount[1][43],g_anReqCount[1][44],g_anReqCount[1][45],g_anReqCount[1][46],g_anReqCount[1][47],
+	g_anReqCount[1][48],g_anReqCount[1][49],g_anReqCount[1][50],g_anReqCount[1][51],g_anReqCount[1][52],g_anReqCount[1][53],g_anReqCount[1][54],g_anReqCount[1][55],
+	g_anReqCount[1][56],g_anReqCount[1][57],g_anReqCount[1][58],g_anReqCount[1][59],g_anReqCount[1][60],g_anReqCount[1][61],g_anReqCount[1][62],g_anReqCount[1][63]);
+}
+
+
+
+
+
+
 bdbm_hlm_reqs_pool_t* bdbm_hlm_reqs_pool_create (
 	int32_t mapping_unit_size, 
 	int32_t io_unit_size)
@@ -90,6 +210,13 @@ bdbm_hlm_reqs_pool_t* bdbm_hlm_reqs_pool_create (
 		hlm_reqs_pool_allocate_llm_reqs (item->llm_reqs, BDBM_BLKIO_MAX_VECS, RP_MEM_VIRT);
 		bdbm_sema_init (&item->done);
 		list_add_tail (&item->list, &pool->free_list);
+	}
+
+	g_nTotal_write = 0;
+	if ((gp_write_request = bdbm_malloc (sizeof(uint16_t) * 128 * MAX_REQUEST_ARRAY)) == NULL)
+	{
+		bdbm_error ("bdbm_malloc () failed");
+		goto fail;
 	}
 
 	return pool;
@@ -152,6 +279,9 @@ void bdbm_hlm_reqs_pool_destroy (
 	/* free other stuff */
 	bdbm_spin_lock_destory (&pool->lock);
 	bdbm_free (pool);
+
+	__hlm_reqs_pool_print_count();
+	__hlm_req_pool_print_workload();
 }
 
 bdbm_hlm_req_t* bdbm_hlm_reqs_pool_get_item (
@@ -337,6 +467,8 @@ static int __hlm_reqs_pool_create_write_req (
 	pg_end = BDBM_ALIGN_UP (br->bi_offset + br->bi_size, NR_KSECTORS_IN(KPAGE_SIZE)) / NR_KSECTORS_IN(KPAGE_SIZE);
 	bdbm_bug_on (pg_start >= pg_end);
 
+	__hlm_req_pool_update_count(1, pg_end - pg_start);
+
 	/* build llm_reqs */
 	nr_llm_reqs = BDBM_ALIGN_UP ((sec_end - sec_start), NR_KSECTORS_IN(pool->io_unit)) / NR_KSECTORS_IN(pool->io_unit);
 	bdbm_bug_on (nr_llm_reqs > BDBM_BLKIO_MAX_VECS);
@@ -355,6 +487,8 @@ static int __hlm_reqs_pool_create_write_req (
 			/* build kernel-pages */
 			ptr_lr->logaddr.lpa[j] = sec_start / NR_KSECTORS_IN(pool->map_unit);
 			ptr_lr->logaddr.ofs = -1;
+
+			__hlm_req_pool_update_workload(ptr_lr->logaddr.lpa[j]);
 
 			for (k = 0; k < NR_KPAGES_IN(pool->map_unit); k++) {
 				uint64_t pg_off = sec_start / NR_KSECTORS_IN(KPAGE_SIZE);
@@ -484,6 +618,8 @@ static int __hlm_reqs_pool_create_read_req (
 	pg_start = BDBM_ALIGN_DOWN (br->bi_offset, NR_KSECTORS_IN(KPAGE_SIZE)) / NR_KSECTORS_IN(KPAGE_SIZE);
 	pg_end = BDBM_ALIGN_UP (br->bi_offset + br->bi_size, NR_KSECTORS_IN(KPAGE_SIZE)) / NR_KSECTORS_IN(KPAGE_SIZE);
 	bdbm_bug_on (pg_start >= pg_end);
+
+	__hlm_req_pool_update_count(0, pg_end - pg_start);
 
 	/* build llm_reqs */
 	nr_llm_reqs = pg_end - pg_start;
@@ -618,6 +754,18 @@ uint64_t hlm_reqs_pool_compaction(
 		
 	bdbm_llm_req_t* dst_req;
 	bdbm_llm_req_t* src_req;
+
+	static uint64_t bCallOnce = 0;
+	if (bCallOnce == 0)
+	{
+		bCallOnce = 1;
+		// call reset func when first g.c start.
+
+		__hlm_reqs_pool_reset_count();	
+	}
+
+
+
 
 	for (unit = 0; unit < nr_punits; unit++)
 	{

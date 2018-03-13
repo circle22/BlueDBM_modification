@@ -130,16 +130,17 @@ uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
 	int i = 0;
 
-	for(i = 0; i < BDBM_MAX_PAGES; i++){
-		if(p->oob[i] == lr->logaddr.lpa[lr->logaddr.ofs]){
-			
-			bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buf[i], KPAGE_SIZE);
+	for (i = 0; i < p->cur_buf_ofs; i++){
+		if (p->buffered_lr->logaddr.lpa[i] == lr->logaddr.lpa[lr->logaddr.ofs])
+		{
+			bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buffered_lr->fmain.kp_ptr[i], KPAGE_SIZE);
 			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
 			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
 
 			return i;
 		}
 	}
+
     return -1;
 }
 
