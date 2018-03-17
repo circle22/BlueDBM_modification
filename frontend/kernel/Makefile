@@ -61,6 +61,7 @@ bdbm_drv-y := \
 	blkio.o \
 	$(FTL)/ftl_params.o \
 	$(FTL)/pmu.o \
+	$(FTL)/hlm_buf.o \
 	$(FTL)/hlm_nobuf.o \
 	$(FTL)/llm_mq.o \
 	$(FTL)/algo/abm.o \

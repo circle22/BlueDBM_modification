@@ -40,6 +40,7 @@ THE SOFTWARE.
 #include "hlm_nobuf.h"
 #include "hlm_buf.h"
 #include "uthread.h"
+#include "umemory.h"
 
 #include "algo/no_ftl.h"
 #include "algo/block_ftl.h"
@@ -56,7 +57,6 @@ bdbm_hlm_inf_t _hlm_buf_inf = {
 	.end_req = hlm_buf_end_req,
 };
 
-
 /* data structures for hlm_buf */
 struct bdbm_hlm_buf_private {
 	bdbm_ftl_inf_t* ptr_ftl_inf;	/* for hlm_nobuff (it must be on top of this structure) */
@@ -71,19 +71,53 @@ struct bdbm_hlm_buf_private {
 int __hlm_buf_thread (void* arg)
 {
 	bdbm_drv_info_t* bdi = (bdbm_drv_info_t*)arg;
-	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)BDBM_HLM_PRIV(bdi);
+	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
+	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)(_hlm_buf_inf.ptr_private);	
 	bdbm_hlm_req_t* r;
+	uint64_t count = 0;
+	uint64_t loop = 0;	
 
 	for (;;) {
 		if (bdbm_queue_is_all_empty (p->q)) {
-			if (bdbm_thread_schedule (p->hlm_thread) == SIGKILL) {
-				break;
+			count++;
+			if ((count % 10000000) == 0)
+			{
+				bdbm_msg ("cnt:%d, loop:%lld,  hlm items = %llu", count, loop, bdbm_queue_get_nr_items (p->q));
+				loop++;
+
+				if (ftl->is_gc_needed(bdi, 0) == 0)
+				{
+					if (bdbm_thread_schedule (p->hlm_thread) == SIGKILL) {
+						break;
+					}
+				}
+			}
+
+			if (ftl->is_gc_needed (bdi, 0)) 
+			{
+				uint32_t ret; 
+				uint32_t utilization = 0;
+
+				hlm_nobuf_flush_buffer(bdi);
+
+				if (loop == 0)
+				{
+					utilization = hlm_nobuf_get_utilization(bdi); 
+				}
+
+				do 
+				{
+					ret = ftl->do_gc (bdi, utilization);
+				}
+				while ((ret != 0));
 			}
 		}
 
 		/* if nothing is in Q, then go to the next punit */
 		while (!bdbm_queue_is_empty (p->q, 0)) {
 			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, 0)) != NULL) {
+//				bdbm_msg("call make_req");
+
 				if (hlm_nobuf_make_req (bdi, r)) {
 					/* if it failed, we directly call 'ptr_host_inf->end_req' */
 					bdi->ptr_host_inf->end_req (bdi, r);
@@ -94,7 +128,17 @@ int __hlm_buf_thread (void* arg)
 				bdbm_error ("r == NULL");
 				bdbm_bug_on (1);
 			}
+
+			if (ftl->is_gc_needed (bdi, 0)) 
+			{
+				uint32_t utilization = hlm_nobuf_get_utilization(bdi); 
+				uint32_t ret = ftl->do_gc (bdi, utilization);
+			}
+
+			count = 0;
+			loop = 0;
 		} 
+		
 	}
 
 	return 0;
@@ -104,6 +148,8 @@ int __hlm_buf_thread (void* arg)
 uint32_t hlm_buf_create (bdbm_drv_info_t* bdi)
 {
 	struct bdbm_hlm_buf_private* p;
+
+	hlm_nobuf_create(bdi);
 
 	/* create private */
 	if ((p = (struct bdbm_hlm_buf_private*)bdbm_malloc_atomic
@@ -126,6 +172,7 @@ uint32_t hlm_buf_create (bdbm_drv_info_t* bdi)
 
 	/* keep the private structure */
 	bdi->ptr_hlm_inf->ptr_private = (void*)p;
+	_hlm_buf_inf.ptr_private = (void*)p;
 
 	/* create & run a thread */
 	if ((p->hlm_thread = bdbm_thread_create (
@@ -140,7 +187,7 @@ uint32_t hlm_buf_create (bdbm_drv_info_t* bdi)
 
 void hlm_buf_destroy (bdbm_drv_info_t* bdi)
 {
-	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)bdi->ptr_hlm_inf->ptr_private;
+	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)(_hlm_buf_inf.ptr_private);
 
 	/* wait until Q becomes empty */
 	while (!bdbm_queue_is_all_empty (p->q)) {
@@ -163,7 +210,9 @@ uint32_t hlm_buf_make_req (
 	bdbm_hlm_req_t* r)
 {
 	uint32_t ret;
-	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)BDBM_HLM_PRIV(bdi);
+	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)(_hlm_buf_inf.ptr_private);
+
+//	bdbm_msg("make req : %ld", bdbm_queue_get_nr_items (p->q));
 
 	if (bdbm_queue_is_full (p->q)) {
 		/* FIXME: wait unti queue has a enough room */

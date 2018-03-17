@@ -141,7 +141,7 @@ typedef struct {
 #define BDBM_MAX_PAGES	(8)
 
 /* a bluedbm blockio request */
-#define BDBM_BLKIO_MAX_VECS 256
+#define BDBM_BLKIO_MAX_VECS 32
 
 typedef struct {
 	uint64_t bi_rw; /* REQTYPE_WRITE or REQTYPE_READ */
@@ -272,6 +272,7 @@ typedef struct {
 	uint32_t (*make_reqs) (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* req);
 	void (*flush) (bdbm_drv_info_t* bdi);
 	void (*end_req) (bdbm_drv_info_t* bdi, bdbm_llm_req_t* req);
+	uint32_t (*get_queuing_count) (bdbm_drv_info_t* bdi);
 } bdbm_llm_inf_t;
 
 /* a generic device interface */

@@ -68,6 +68,7 @@ bdbm_queue_t* bdbm_queue_create (uint64_t nr_queues, int64_t max_size)
 		INIT_LIST_HEAD (&mq->qlh[loop]);
 	}
 
+	bdbm_msg("max size : %ld", mq->max_size);
 	return mq;
 }
 
@@ -201,6 +202,7 @@ uint8_t bdbm_queue_is_full (bdbm_queue_t* mq)
 
 	bdbm_spin_lock_irqsave (&mq->lock, flags);
 	if (mq->max_size != INFINITE_QUEUE) {
+		bdbm_msg("size : %ld", mq->max_size);
 		bdbm_bug_on (mq->qic > mq->max_size);
 		if (mq->qic == mq->max_size)
 			ret = 1;

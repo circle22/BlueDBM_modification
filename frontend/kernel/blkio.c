@@ -52,6 +52,8 @@ bdbm_host_inf_t _blkio_inf = {
 
 typedef struct {
 	bdbm_sema_t host_lock;
+	bdbm_spinlock_t lock;
+
 	atomic_t nr_host_reqs;
 	bdbm_hlm_reqs_pool_t* hlm_reqs_pool;
 } bdbm_blkio_private_t;
@@ -135,6 +137,7 @@ uint32_t blkio_open (bdbm_drv_info_t* bdi)
 		return 1;
 	}
 	bdbm_sema_init (&p->host_lock);
+	bdbm_spin_lock_init(&p->lock);
 	atomic_set (&p->nr_host_reqs, 0);
 	bdi->ptr_host_inf->ptr_private = (void*)p;
 
@@ -245,8 +248,15 @@ fail:
 void blkio_end_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 {
 	bdbm_blkio_private_t* p = (bdbm_blkio_private_t*)BDBM_HOST_PRIV(bdi);
-	bdbm_blkio_req_t* br = (bdbm_blkio_req_t*)hr->blkio_req;
+	bdbm_blkio_req_t* br;
 
+	bdbm_spin_lock(&p->lock);
+	br = (bdbm_blkio_req_t*)hr->blkio_req;
+	if (br != NULL)
+	{
+		hr->blkio_req = NULL;
+	}
+	bdbm_spin_unlock(&p->lock);
 	if (br != NULL)
 	{
 		/* end bio */
@@ -269,8 +279,6 @@ void blkio_end_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 
 		/* decreate # of reqs */
 		atomic_dec (&p->nr_host_reqs);
-
-		hr->blkio_req = NULL;	
 	}
 	else
 	{

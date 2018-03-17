@@ -140,7 +140,7 @@ typedef struct {
 	uint64_t nop_count;
 
 	uint64_t gc_count;
-
+	uint64_t utilization;
 } bdbm_page_ftl_private_t;
 
 
@@ -424,6 +424,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->gc_copy_count = 0;
 	p->nop_count = 0;
 	p->gc_count = 0;
+	p->utilization = 0;
 
 	return 0;
 }
@@ -942,19 +943,16 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		uint64_t nr_free_blks = bdbm_abm_get_nr_free_blocks (p->bai);
 
 		/* invoke gc when remaining free blocks are less than 1% of total blocks */
-		if (nr_free_blks < p->bai->nr_gc_trigger_threshold)
+		if (nr_free_blks <= p->bai->nr_gc_ondemand_threshold)
 		{
-			return 1;
+			// on demand GC.
+			return ON_DEMAND_GC;
 		}
-
-
-		/* invoke gc when there is only one dirty block (for debugging) */
-		/*
-		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-		if (bdbm_abm_get_nr_dirty_blocks (p->bai) > 1) {
-			return 1;
+		else if (nr_free_blks < p->bai->nr_gc_background_threshold)
+		{
+			// back ground GC.
+			return BACKGROUND_GC;
 		}
-		*/
 
 		return 0;
 	}
@@ -1481,7 +1479,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-		bdbm_msg("GC %lld, Alloc Src %lld", p->gc_count, p->src_valid_page_count); 
+		bdbm_msg("GC %lld, Alloc Src %lld, U %lld", p->gc_count, p->src_valid_page_count, p->utilization); 
 	}
 
 
@@ -2229,14 +2227,14 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 	return 0;
 }
 
-uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t lpa)
+uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
 	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
 
 	static uint32_t state = 0;
-	
+	p->utilization = utilization;	
 	p->nop_count++;
 	if ((p->nop_count % 3000000) == 0)
 	{

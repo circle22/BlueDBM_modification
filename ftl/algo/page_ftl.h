@@ -27,6 +27,10 @@ THE SOFTWARE.
 
 extern bdbm_ftl_inf_t _ftl_page_ftl;
 
+#define ON_DEMAND_GC	(1)
+#define BACKGROUND_GC	(2)
+
+
 #if 0
 uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi);
 void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi);

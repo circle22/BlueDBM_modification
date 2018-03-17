@@ -100,10 +100,12 @@ int bdbm_thread_schedule (bdbm_thread_t* k)
 		return 0;
 	}
 
+#if 1		// no wait
 	add_wait_queue (&k->wq, k->wait);
 	set_current_state (TASK_INTERRUPTIBLE);
 	schedule (); /* go to sleep */
 	remove_wait_queue (&k->wq, k->wait);
+#endif
 
 	if (signal_pending (current)) {
 		/* get a kill signal */

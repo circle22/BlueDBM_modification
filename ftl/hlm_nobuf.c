@@ -46,6 +46,7 @@ THE SOFTWARE.
 #include "algo/block_ftl.h"
 #include "algo/page_ftl.h"
 
+#define BUFFERING_LLM_COUNT	(320)
 
 /* interface for hlm_nobuf */
 bdbm_hlm_inf_t _hlm_nobuf_inf = {
@@ -60,10 +61,20 @@ bdbm_hlm_inf_t _hlm_nobuf_inf = {
 
 /* data structures for hlm_nobuf */
 typedef struct {
-	bdbm_llm_req_t* buffered_lr;
-    uint8_t* buf[BDBM_MAX_PAGES];
-    uint64_t oob[BDBM_MAX_PAGES];
-    uint8_t cur_buf_ofs;
+	bdbm_llm_req_t* buffered_lr[BUFFERING_LLM_COUNT];
+	uint64_t cur_buf_ofs;
+	
+	uint64_t cur_lr_idx;
+	uint64_t flush_lr_idx;	
+	uint64_t queuing_lr_count;
+
+	uint64_t flush_threshold; // ch x bank
+	uint64_t queuing_threshold; // ch x bank x 4
+
+	// utilization
+	uint64_t cumulative_check_count;
+	uint64_t cumulative_pending_count;
+	uint64_t utilization;
 } bdbm_hlm_nobuf_private_t;
 
 
@@ -80,22 +91,36 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 		return 1;
 	}
 
-	for (i = 0; i < BDBM_MAX_PAGES; i++){
-		p->buf[i] = (uint8_t*)bdbm_malloc(KPAGE_SIZE);
-		p->oob[i] = -1;
-    }
-	p->buffered_lr = NULL;
+	for (i = 0; i < BUFFERING_LLM_COUNT; i++)
+	{
+		p->buffered_lr[i] = NULL;
+	}
+	
 	p->cur_buf_ofs = 0;
 
+	p->cur_lr_idx = 0;
+	p->flush_lr_idx = 0;	
+	p->queuing_lr_count = 0;
+
+	p->flush_threshold = bdi->parm_dev.nr_channels * bdi->parm_dev.nr_chips_per_channel;
+	p->queuing_threshold = BUFFERING_LLM_COUNT; // ch x bank x 4	
+	
+	// utilization
+	p->cumulative_check_count = 0;
+	p->cumulative_pending_count = 0;
+	p->utilization = 0;
+
+	bdbm_msg("creast threshold %lld, %lld", p->flush_threshold, p->queuing_threshold);
 	/* keep the private structure */
 	bdi->ptr_hlm_inf->ptr_private = (void*)p;
+	_hlm_nobuf_inf.ptr_private = (void*)p;
 
 	return 0;
 }
 
 void hlm_nobuf_destroy (bdbm_drv_info_t* bdi)
 {
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
 	/* free priv */
 	bdbm_free (p);
@@ -127,9 +152,10 @@ void __print_buffer(uint8_t* ptr)
 
 
 uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 	int i = 0;
 
+#if 0
 	for (i = 0; i < p->cur_buf_ofs; i++){
 		if (p->buffered_lr->logaddr.lpa[i] == lr->logaddr.lpa[lr->logaddr.ofs])
 		{
@@ -140,78 +166,138 @@ uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 			return i;
 		}
 	}
-
+#endif
     return -1;
 }
 
-int __hlm_flush_buffer(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
+{
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
-	int i = 0, cnt = 0;
+	int i = 0;
+	int llm_idx = p->flush_lr_idx;
+	bdbm_llm_req_t* llm_req;
 
-	lr->logaddr.ofs = -1;
-	for(i = 0; i < p->cur_buf_ofs; i++){
-		lr->fmain.kp_ptr[i] = lr->fmain.kp_pad[i];
-		bdbm_memcpy (lr->fmain.kp_ptr[i], p->buf[i], KPAGE_SIZE);
-		lr->fmain.kp_stt[i] = KP_STT_DATA;
-		lr->logaddr.lpa[i] = p->oob[i];
-		p->oob[i] = -1;
-		cnt++;
+//	bdbm_msg("flush_buffer start: %lld, %lld, %lld - %lld", p->cur_lr_idx, p->flush_lr_idx, p->queuing_lr_count, p->utilization);
+
+	for (i = 0; i < p->flush_threshold; i++)
+	{
+		llm_req = p->buffered_lr[llm_idx + i];
+		llm_req->req_type = REQTYPE_WRITE;
+
+		if (ftl->get_free_ppa (bdi, llm_req->logaddr.lpa[0], &llm_req->phyaddr) != 0)
+		{
+			bdbm_error ("`ftl->get_free_ppa' failed");
+			bdbm_bug_on (1);
+		}
+		
+		if (ftl->map_lpa_to_ppa (bdi, &(llm_req->logaddr), &(llm_req->phyaddr)) != 0) 
+		{
+			bdbm_error ("`ftl->map_lpa_to_ppa' failed");
+			bdbm_bug_on (1);
+		}
+
+		/* send individual llm-reqs to llm */
+		if (bdi->ptr_llm_inf->make_req (bdi, llm_req) != 0) {
+			bdbm_error ("oops! make_req () failed");
+			bdbm_bug_on (1);
+		}
 	}
-	p->cur_buf_ofs = 0;
 
-	return cnt;
+	p->flush_lr_idx += p->flush_threshold;
+	if (p->flush_lr_idx == p->queuing_threshold)
+	{
+		p->flush_lr_idx = 0;
+	}
+	
+	p->queuing_lr_count -= p->flush_threshold;
+
+//	bdbm_msg("flush_buffer end: %lld, %lld, %lld", p->cur_lr_idx, p->flush_lr_idx, p->queuing_lr_count);
+	return 0;
 }
 
 
 
-uint32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
+int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
+{
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
 	int i = 0, same = -1;
 	uint64_t registered = 0;
 
-	if (p->cur_buf_ofs == 0)
-	{
-		p->buffered_lr = lr;
-		registered = 1;
-	}
-	else
-	{
-		for(i = 0; i < p->cur_buf_ofs; i++){
-			if(p->buffered_lr->logaddr.lpa[i] == lr->logaddr.lpa[lr->logaddr.ofs])
-				same = i;
-		}
-	}
+	p->cumulative_check_count++;
+	p->cumulative_pending_count += (p->queuing_lr_count);
 
-	if (same == -1)
+	if (lr->logaddr.ofs != -1)
 	{
-		p->buffered_lr->fmain.kp_ptr[p->cur_buf_ofs] = lr->fmain.kp_ptr[lr->logaddr.ofs];
-		p->buffered_lr->logaddr.lpa[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
-		((int64_t*)p->buffered_lr->foob.data)[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];		
-		p->buffered_lr->fmain.kp_stt[p->cur_buf_ofs] = KP_STT_DATA;
+		// 4KB write.
+		if (p->cur_buf_ofs == 0)
+		{
+			p->buffered_lr[p->cur_lr_idx] = lr;
+			registered = 1;
+		}
+
+		bdbm_llm_req_t* buffered_lr = p->buffered_lr[p->cur_lr_idx];
+
+		buffered_lr->fmain.kp_stt[p->cur_buf_ofs] = KP_STT_DATA;
+		bdbm_memcpy (buffered_lr->fmain.kp_ptr[p->cur_buf_ofs] , lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
+
+		buffered_lr->logaddr.lpa[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];
+		((int64_t*)buffered_lr->foob.data)[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];		
 
 		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
+		if (buffered_lr != lr)
+		{
+			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+		}
+
+		lr->logaddr.ofs = p->cur_buf_ofs; // temp...
 		p->cur_buf_ofs++;
 	}
 	else
 	{
-		p->buffered_lr->fmain.kp_ptr[same] = lr->fmain.kp_ptr[lr->logaddr.ofs];
+		// 32KB full write		
+		if (p->cur_buf_ofs != 0)
+		{			
+			p->cur_lr_idx++;
+			if (p->cur_lr_idx == p->queuing_threshold)
+			{
+				p->cur_lr_idx = 0;
+			}			
+		}
+
+		for (i = 0; i < BDBM_MAX_PAGES; i++)
+		{
+			((int64_t*)lr->foob.data)[i] = lr->logaddr.lpa[i];
+			ftl->invalidate_lpa(bdi, lr->logaddr.lpa[i], 1);
+		}
+
+		p->buffered_lr[p->cur_lr_idx] = lr;
+		registered = 1;
+		
+		p->cur_buf_ofs = BDBM_MAX_PAGES;
 	}
 
-	if (p->buffered_lr != lr)
+	if (p->cur_buf_ofs == BDBM_MAX_PAGES)
 	{
-		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
-		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+		p->cur_buf_ofs = 0;
+		p->cur_lr_idx++;
+		if (p->cur_lr_idx == p->queuing_threshold)
+		{
+			p->cur_lr_idx = 0;
+		}
+
+		p->queuing_lr_count++;
 	}
 
 	if (registered == 1)
 	{
-		return 0;
+		return -1;
 	}
 	else
 	{
-		return p->cur_buf_ofs;
+		return 0;
 	}
 }
 
@@ -227,9 +313,29 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	bdbm_llm_req_t* lr = NULL;
 	uint64_t i = 0, j = 0, sp_ofs;
 
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);	
-	uint64_t registered_idx = 0xFF;
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
+	if (p->queuing_lr_count >= p->flush_threshold)
+	{
+		//	depend on pending count.
+		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_chips_per_ssd) &&
+			(ftl->is_gc_needed(bdi, 0) != ON_DEMAND_GC))
+		{
+			__hlm_flush_buffer(bdi);
+
+			p->utilization = (p->cumulative_pending_count * 100)/(p->queuing_threshold * p->cumulative_check_count);
+			if (p->cumulative_check_count > 2048)
+			{
+				p->cumulative_pending_count /= 2;
+				p->cumulative_check_count/= 2; 
+			}
+		}
+	}
+
+	if (p->queuing_lr_count > p->queuing_threshold - 10)
+	{
+		return 2;
+	} 
 	/* perform mapping with the FTL */
 	bdbm_hlm_for_each_llm_req (lr, hr, i) {
 		/* (1) get the physical locations through the FTL */
@@ -247,49 +353,18 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 //						bdbm_msg("normal read : %lld", lr->logaddr.lpa[0]);
 					}
 				}
-			} else if (bdbm_is_write (lr->req_type)) {
-				if(lr->logaddr.ofs != -1)
+			} 
+			else if (bdbm_is_write (lr->req_type)) 
+			{
+//				bdbm_msg("write : %lld %lld, %lld", lr->logaddr.lpa[0], lr->logaddr.lpa[1], lr->logaddr.ofs) ;
+
+				int32_t ret = __hlm_buffered_write(bdi, lr); 
+				if (ret == -1)
 				{
-					uint32_t ret = __hlm_buffered_write(bdi, lr); 
-					if (ret == 0)
-					{
-						registered_idx = i;
-					}
-					else if(ret == BDBM_MAX_PAGES){
-						//bdbm_msg("partial write - flush");
-						if (ftl->get_free_ppa (bdi, p->buffered_lr->logaddr.lpa[0], &p->buffered_lr->phyaddr) != 0)
-						{
-							bdbm_error ("`ftl->get_free_ppa' failed");
-							goto fail;
-						}
-
-						if (ftl->map_lpa_to_ppa (bdi, &(p->buffered_lr->logaddr), &(p->buffered_lr->phyaddr)) != 0) 
-						{
-							bdbm_error ("`ftl->map_lpa_to_ppa' failed");
-							goto fail;
-						}
-
-						/* send individual llm-reqs to llm */
-						if (bdi->ptr_llm_inf->make_req (bdi, p->buffered_lr) != 0) {
-							bdbm_error ("oops! make_req () failed");
-							bdbm_bug_on (1);
-						}
-						
-						p->buffered_lr = NULL;
-						p->cur_buf_ofs = 0;
-					}
+					lr->req_type = REQTYPE_FLUSH_WRITE;
+					
+					continue;
 				}
-                else{
-					//bdbm_msg("32KB write"); 
-					if (ftl->get_free_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr) != 0) {
-                        bdbm_error ("`ftl->get_free_ppa' failed");
-                        goto fail;
-                    }
-                    if (ftl->map_lpa_to_ppa (bdi, &lr->logaddr, &lr->phyaddr) != 0) {
-                        bdbm_error ("`ftl->map_lpa_to_ppa' failed");
-                        goto fail;
-                    }
-                }
 			} 
 			else {
 				bdbm_error ("oops! invalid type (%x)", lr->req_type);
@@ -335,7 +410,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	if (bdi->ptr_llm_inf->make_reqs == NULL) {
 		/* send individual llm-reqs to llm */
 		bdbm_hlm_for_each_llm_req (lr, hr, i) {
-			if (i == registered_idx)
+			if (bdbm_is_flush(lr->req_type))
 			{
 				// this llm request is used for buffering
 				continue;
@@ -355,7 +430,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	}
 
 	bdbm_bug_on (hr->nr_llm_reqs != i);
-	
+
 	return 0;
 
 fail:
@@ -363,42 +438,37 @@ fail:
 }
 
 /* TODO: it must be more general... */
+
+void __hlm_nobuf_check_background_gc (bdbm_drv_info_t* bdi)
+{
+	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
+
+	if (ftl->is_gc_needed (bdi, 0) == BACKGROUND_GC) 
+	{
+		uint32_t ret = ftl->do_gc (bdi, p->utilization);
+	}
+}
+
 void __hlm_nobuf_check_ondemand_gc (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 {
 	bdbm_ftl_params* dp = BDBM_GET_DRIVER_PARAMS (bdi);
 	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
-	if (dp->mapping_type == MAPPING_POLICY_PAGE) {
-		uint32_t loop;
-
-#ifndef DWHONG
-		/* see if foreground GC is needed or not */
-		for (loop = 0; loop < 10; loop++) {
-			if (bdbm_is_write(hr->req_type) && 
-				ftl->is_gc_needed != NULL && 
-				ftl->is_gc_needed (bdi, 0)) {
-				/* perform GC before sending requests */ 
-				//bdbm_msg ("[hlm_nobuf_make_req] trigger GC");
-				ftl->do_gc (bdi, 0);
-			} else
-				break;
-		}
-		asdfasdf
-#else
-		if (bdbm_is_write(hr->req_type) && 
-			ftl->is_gc_needed != NULL && ftl->is_gc_needed (bdi, 0)) 
+	if (dp->mapping_type == MAPPING_POLICY_PAGE) 
+	{
+		if ((bdbm_is_write(hr->req_type)) && (ftl->is_gc_needed(bdi, 0) == ON_DEMAND_GC)) 
 		{
 			uint32_t ret;	
-			//bdbm_msg ("[hlm_nobuf_make_req] forground GC start");
+		//	bdbm_msg ("[hlm_nobuf_make_req] forground GC start");
 			do
 			{
-				ret = ftl->do_gc (bdi, 0);
+				ret = ftl->do_gc (bdi, p->utilization);
 			}
-			while(ftl->is_gc_needed (bdi, 0) || (ret != 0));
-			
-			//bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
+			while((ftl->is_gc_needed (bdi, 0) == ON_DEMAND_GC) || (ret != 0));
+		//	bdbm_msg ("[hlm_nobuf_make_req] forground GC finish %ld", ret);
 		}
-#endif
 	} else if (dp->mapping_type == MAPPING_POLICY_RSD ||
 			   dp->mapping_type == MAPPING_POLICY_BLOCK) {
 		/* perform mapping with the FTL */
@@ -428,24 +498,6 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	/* is req_type correct? */
 //	bdbm_bug_on (!bdbm_is_normal (hr->req_type));
 
-#if 0
-	/* trigger gc if necessary */
-	if (dp->mapping_type != MAPPING_POLICY_DFTL) {
-		bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
-		/* see if foreground GC is needed or not */
-		for (loop = 0; loop < 10; loop++) {
-			if (hr->req_type == REQTYPE_WRITE && 
-				ftl->is_gc_needed != NULL && 
-				ftl->is_gc_needed (bdi, 0)) {
-				/* perform GC before sending requests */ 
-				bdbm_msg ("[hlm_nobuf_make_req] trigger GC");
-				ftl->do_gc (bdi, 0);
-			} else
-				break;
-		}
-	}
-#endif
-
 	/* perform i/o */
 	if (bdbm_is_trim (hr->req_type)) {
 		if ((ret = __hlm_nobuf_make_trim_req (bdi, hr)) == 0) {
@@ -455,9 +507,10 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		}
 	} else {
 		/* do we need to do garbage collection? */
-		__hlm_nobuf_check_ondemand_gc (bdi, hr);
-
-		ret = __hlm_nobuf_make_rw_req (bdi, hr);
+		while ((ret = __hlm_nobuf_make_rw_req (bdi, hr)) == 2)
+		{
+			__hlm_nobuf_check_ondemand_gc (bdi, hr);
+		}
 	} 
 
 	return ret;
@@ -466,6 +519,7 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 void __hlm_nobuf_end_blkio_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 {
 	bdbm_hlm_req_t* hr = (bdbm_hlm_req_t* )lr->ptr_hlm_req;
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
 
 	/* increase # of reqs finished */
 	atomic64_inc (&hr->nr_llm_reqs_done);
@@ -498,6 +552,39 @@ void hlm_nobuf_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	}
 	else {
 		__hlm_nobuf_end_blkio_req (bdi, lr);
+	}
+}
+
+
+uint32_t hlm_nobuf_get_utilization(bdbm_drv_info_t* bdi)
+{
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
+
+	return p->utilization;
+}
+
+uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
+{
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
+	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
+
+	if (p->queuing_lr_count >= p->flush_threshold)
+	{
+		//	depend on pending count.
+		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_chips_per_ssd) &&
+			(ftl->is_gc_needed(bdi, 0) != ON_DEMAND_GC))
+		{
+			__hlm_flush_buffer(bdi);
+
+			p->utilization = (p->queuing_lr_count * 100)/p->queuing_threshold;
+		}
+
+		return 1;
+	}
+	else
+	{
+		return 0;
 	}
 }
 

@@ -33,6 +33,8 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi);
 void hlm_nobuf_destroy (bdbm_drv_info_t* bdi);
 uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* req);
 void hlm_nobuf_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* req);
+uint32_t hlm_nobuf_get_utilization(bdbm_drv_info_t* bdi);
+uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi);
 
 #endif
 

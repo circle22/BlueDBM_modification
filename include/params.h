@@ -32,8 +32,8 @@ THE SOFTWARE.
 #define GC_FACTOR		(0)
 //#define PLANE_NUMBER	(2)
 
-#define GC_HIGH_THRESHOLD	(10)
-#define GC_THRESHOLD		(2) // + MAX_COPY_BACK)
+#define GC_BACKGROUND_THRESHOLD		(10)
+#define GC_ONDEMAND_THRESHOLD		(2) // + MAX_COPY_BACK)
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE

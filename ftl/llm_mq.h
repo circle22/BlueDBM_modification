@@ -33,4 +33,5 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* req);
 void llm_mq_flush (bdbm_drv_info_t* bdi);
 void llm_mq_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* req);
 
+uint32_t llm_mq_get_queuing_count(bdbm_drv_info_t* bdi);
 #endif

@@ -41,7 +41,7 @@ THE SOFTWARE.
 #include "umemory.h"
 
 
-#define DEFAULT_POOL_SIZE		256
+#define DEFAULT_POOL_SIZE		(256+1024)
 #define DEFAULT_POOL_INC_SIZE	DEFAULT_POOL_SIZE / 5
 
 

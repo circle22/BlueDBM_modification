@@ -60,7 +60,8 @@ THE SOFTWARE.
 /* TEMP */
 //bdbm_ftl_inf_t _ftl_block_ftl, _ftl_dftl, _ftl_no_ftl;
 bdbm_ftl_inf_t _ftl_dftl, _ftl_no_ftl;
-bdbm_hlm_inf_t _hlm_dftl_inf, _hlm_buf_inf;
+//bdbm_hlm_inf_t _hlm_dftl_inf, _hlm_buf_inf;
+bdbm_hlm_inf_t _hlm_dftl_inf;
 bdbm_llm_inf_t _llm_noq_inf;
 /* TEMP */
 
@@ -225,6 +226,12 @@ int bdbm_drv_run (bdbm_drv_info_t* bdi)
 	/* create a high-level memory manager */
 	if (bdi->ptr_hlm_inf) {
 		hlm = bdi->ptr_hlm_inf;
+
+		if (hlm == NULL)
+		{
+			bdbm_error ("[bdbm_drv_main] NULL");
+		}
+
 		if (hlm->create == NULL || hlm->create (bdi) != 0) {
 			bdbm_error ("[bdbm_drv_main] failed to create hlm");
 			goto fail;
