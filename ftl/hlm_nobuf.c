@@ -41,6 +41,7 @@ THE SOFTWARE.
 #include "hlm_reqs_pool.h"
 #include "utime.h"
 #include "umemory.h"
+#include "uthash.h"
 
 #include "algo/no_ftl.h"
 #include "algo/block_ftl.h"
@@ -77,6 +78,31 @@ typedef struct {
 	uint64_t utilization;
 } bdbm_hlm_nobuf_private_t;
 
+typedef struct {
+	uint64_t id;
+	uint32_t lr_idx;
+	uint32_t buf_ofs;
+
+	UT_hash_handle hh; /* makes this structure hashable */	
+} bdbm_hlm_hash_entry;
+
+bdbm_hlm_hash_entry* hash_info = NULL;
+bdbm_hlm_hash_entry hash_entry[BUFFERING_LLM_COUNT*BDBM_MAX_PAGES]; // 320 x 8
+
+void __hlm_nobuf_add_entry(bdbm_hlm_hash_entry* entry) {
+	HASH_ADD_INT(hash_info, id, entry);
+}
+
+void __hlm_nobuf_delete_entry(bdbm_hlm_hash_entry* entry) {
+	HASH_DEL(hash_info, entry);
+}
+
+bdbm_hlm_hash_entry* __hlm_nobuf_find_entry(int user_id) {
+	bdbm_hlm_hash_entry* entry;
+
+	HASH_FIND_INT(hash_info, &user_id, entry);
+	return entry;
+}
 
 /* functions for hlm_nobuf */
 uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
@@ -153,30 +179,41 @@ void __print_buffer(uint8_t* ptr)
 
 uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
-	int i = 0;
+	bdbm_hlm_hash_entry* entry;
 
-#if 0
-	for (i = 0; i < p->cur_buf_ofs; i++){
-		if (p->buffered_lr->logaddr.lpa[i] == lr->logaddr.lpa[lr->logaddr.ofs])
-		{
-			bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buffered_lr->fmain.kp_ptr[i], KPAGE_SIZE);
-			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
-			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+	entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[lr->logaddr.ofs]);
+	if (entry != NULL)
+	{
+		/*
+		bdbm_msg("read hit : %lld", entry->id);
+		bdbm_msg(" lr_idx: %lld", entry->lr_idx);
+		bdbm_msg(" buf_ofs : %lld", entry->buf_ofs);
+		bdbm_msg(" cur_idx : %lld", p->cur_lr_idx);
+		bdbm_msg(" cur_off : %lld", p->cur_buf_ofs); */
 
-			return i;
-		}
+		// read cache hit
+		bdbm_bug_on (entry->id != lr->logaddr.lpa[lr->logaddr.ofs]);		
+		bdbm_memcpy (lr->fmain.kp_ptr[lr->logaddr.ofs], p->buffered_lr[entry->lr_idx]->fmain.kp_ptr[entry->buf_ofs], KPAGE_SIZE);
+
+		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+
+		return 0;		
 	}
-#endif
-    return -1;
+	else
+	{
+		return -1;
+	}
 }
 
 int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 {
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
-	int i = 0;
+	int i, j;
 	int llm_idx = p->flush_lr_idx;
 	bdbm_llm_req_t* llm_req;
+	bdbm_hlm_hash_entry * entry;
 
 //	bdbm_msg("flush_buffer start: %lld, %lld, %lld - %lld", p->cur_lr_idx, p->flush_lr_idx, p->queuing_lr_count, p->utilization);
 
@@ -202,6 +239,16 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 			bdbm_error ("oops! make_req () failed");
 			bdbm_bug_on (1);
 		}
+
+		// cache management.
+		entry = hash_entry + ((llm_idx + i)<<3);
+		for (j = 0; j < BDBM_MAX_PAGES; j++)
+		{
+			if (llm_req->logaddr.lpa[j] != -1)
+			{
+				__hlm_nobuf_delete_entry(entry + j);
+			}
+		}
 	}
 
 	p->flush_lr_idx += p->flush_threshold;
@@ -222,14 +269,34 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 {
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
-	int i = 0, same = -1;
+	int i;
 	uint64_t registered = 0;
+	bdbm_hlm_hash_entry* entry = NULL; 
 
 	p->cumulative_check_count++;
 	p->cumulative_pending_count += (p->queuing_lr_count);
 
 	if (lr->logaddr.ofs != -1)
 	{
+		bdbm_llm_req_t* buffered_lr = NULL; 
+		// cache hit management.	
+		entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[lr->logaddr.ofs]);
+		if (entry != NULL)
+		{
+			/*
+			bdbm_msg("write hit : %lld", entry->id);
+			bdbm_msg(" lr_idx: %lld", entry->lr_idx);
+			bdbm_msg(" buf _ofs: %lld", entry->buf_ofs);*/
+			// write cache hit
+			bdbm_bug_on (entry->id != lr->logaddr.lpa[lr->logaddr.ofs]);		
+			bdbm_memcpy(p->buffered_lr[entry->lr_idx]->fmain.kp_ptr[entry->buf_ofs], lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
+			
+			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
+			lr->logaddr.lpa[lr->logaddr.ofs] = -1;
+
+			return 0;		
+		}
+
 		// 4KB write.
 		if (p->cur_buf_ofs == 0)
 		{
@@ -237,8 +304,7 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 			registered = 1;
 		}
 
-		bdbm_llm_req_t* buffered_lr = p->buffered_lr[p->cur_lr_idx];
-
+		buffered_lr = p->buffered_lr[p->cur_lr_idx];
 		buffered_lr->fmain.kp_stt[p->cur_buf_ofs] = KP_STT_DATA;
 		bdbm_memcpy (buffered_lr->fmain.kp_ptr[p->cur_buf_ofs] , lr->fmain.kp_ptr[lr->logaddr.ofs], KPAGE_SIZE);
 
@@ -246,6 +312,14 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 		((int64_t*)buffered_lr->foob.data)[p->cur_buf_ofs] = lr->logaddr.lpa[lr->logaddr.ofs];		
 
 		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
+
+		// cache hit management.
+		entry = hash_entry + ((p->cur_lr_idx << 3) + p->cur_buf_ofs);
+		entry->id = lr->logaddr.lpa[lr->logaddr.ofs];
+		entry->lr_idx = p->cur_lr_idx;
+		entry->buf_ofs = p->cur_buf_ofs;
+		__hlm_nobuf_add_entry(entry);
+
 		if (buffered_lr != lr)
 		{
 			lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
@@ -257,6 +331,9 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	}
 	else
 	{
+		entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[0]);
+		bdbm_bug_on(entry != NULL); // TODO Later.
+
 		// 32KB full write		
 		if (p->cur_buf_ofs != 0)
 		{			
@@ -265,12 +342,20 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 			{
 				p->cur_lr_idx = 0;
 			}			
+			p->queuing_lr_count++;
 		}
 
 		for (i = 0; i < BDBM_MAX_PAGES; i++)
 		{
 			((int64_t*)lr->foob.data)[i] = lr->logaddr.lpa[i];
 			ftl->invalidate_lpa(bdi, lr->logaddr.lpa[i], 1);
+
+			// cache hit management.
+			bdbm_hlm_hash_entry* entry = hash_entry + ((p->cur_lr_idx << 3) + i);
+			entry->id = lr->logaddr.lpa[i];
+			entry->lr_idx = p->cur_lr_idx;
+			entry->buf_ofs = i;
+			__hlm_nobuf_add_entry(entry);
 		}
 
 		p->buffered_lr[p->cur_lr_idx] = lr;
@@ -332,7 +417,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		}
 	}
 
-	if (p->queuing_lr_count > p->queuing_threshold - 10)
+	if (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs))
 	{
 		return 2;
 	} 
@@ -519,7 +604,6 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 void __hlm_nobuf_end_blkio_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 {
 	bdbm_hlm_req_t* hr = (bdbm_hlm_req_t* )lr->ptr_hlm_req;
-	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)BDBM_HLM_PRIV(bdi);
 
 	/* increase # of reqs finished */
 	atomic64_inc (&hr->nr_llm_reqs_done);

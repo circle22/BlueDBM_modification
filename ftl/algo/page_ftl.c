@@ -1550,10 +1550,12 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 
 	valid_subpage_count = np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages;
 
+#ifndef INFINITE_COPYBACK
 	if (src_blk[plane].copy_count+1 == MAX_COPY_BACK)
 	{
 		refresh = 1; // utilize internal copyback
 	}
+#endif
 
 #if 0		
 	if ((p->gc_count > 22000) && (p->gc_count < 24000))

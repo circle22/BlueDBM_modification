@@ -141,7 +141,11 @@ typedef struct {
 #define BDBM_MAX_PAGES	(8)
 
 /* a bluedbm blockio request */
-#define BDBM_BLKIO_MAX_VECS 32
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)
+#define BDBM_BLKIO_MAX_VECS 512
+#else
+#define BDBM_BLKIO_MAX_VECS 256
+#endif
 
 typedef struct {
 	uint64_t bi_rw; /* REQTYPE_WRITE or REQTYPE_READ */

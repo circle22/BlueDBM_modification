@@ -28,6 +28,8 @@ THE SOFTWARE.
 #define DWHONG	// Test
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(4 + 1) // +1 is used for default or external copyback case
+//#define INFINITE_COPYBACK	// 
+
 #define PLANE_NUMBER	(2)
 #define GC_FACTOR		(0)
 //#define PLANE_NUMBER	(2)

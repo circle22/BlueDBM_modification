@@ -41,7 +41,7 @@ THE SOFTWARE.
 #include "umemory.h"
 
 
-#define DEFAULT_POOL_SIZE		(256+1024)
+#define DEFAULT_POOL_SIZE		(512)
 #define DEFAULT_POOL_INC_SIZE	DEFAULT_POOL_SIZE / 5
 
 
@@ -472,7 +472,7 @@ static int __hlm_reqs_pool_create_write_req (
 	/* build llm_reqs */
 	nr_llm_reqs = BDBM_ALIGN_UP ((sec_end - sec_start), NR_KSECTORS_IN(pool->io_unit)) / NR_KSECTORS_IN(pool->io_unit);
 	bdbm_bug_on (nr_llm_reqs > BDBM_BLKIO_MAX_VECS);
-
+	
 	ptr_lr = &hr->llm_reqs[0];
 
 	for (i = 0; i < nr_llm_reqs; i++) {
