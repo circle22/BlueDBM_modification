@@ -417,7 +417,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		}
 	}
 
-	if (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs))
+	if (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs - 1))
 	{
 		return 2;
 	} 

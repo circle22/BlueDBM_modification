@@ -220,7 +220,7 @@ uint32_t hlm_buf_make_req (
 		bdbm_bug_on (1);
 	} 
 
-	while (bdbm_queue_get_nr_items (p->q) >= 256) {
+	while (bdbm_queue_get_nr_items (p->q) >= 160) {
 		bdbm_thread_yield ();
 	}
 	
