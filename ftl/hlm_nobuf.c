@@ -240,6 +240,8 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 			bdbm_bug_on (1);
 		}
 
+//		bdbm_msg(" _delete_entry %lld", llm_idx + i);
+
 		// cache management.
 		entry = hash_entry + ((llm_idx + i)<<3);
 		for (j = 0; j < BDBM_MAX_PAGES; j++)
@@ -272,18 +274,18 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	int i;
 	uint64_t registered = 0;
 	bdbm_hlm_hash_entry* entry = NULL; 
+	bdbm_llm_req_t* buffered_lr = NULL; 
 
 	p->cumulative_check_count++;
 	p->cumulative_pending_count += (p->queuing_lr_count);
 
 	if (lr->logaddr.ofs != -1)
 	{
-		bdbm_llm_req_t* buffered_lr = NULL; 
 		// cache hit management.	
 		entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[lr->logaddr.ofs]);
 		if (entry != NULL)
 		{
-			/*
+			/*	
 			bdbm_msg("write hit : %lld", entry->id);
 			bdbm_msg(" lr_idx: %lld", entry->lr_idx);
 			bdbm_msg(" buf _ofs: %lld", entry->buf_ofs);*/
@@ -331,12 +333,15 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	}
 	else
 	{
-		entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[0]);
-		bdbm_bug_on(entry != NULL); // TODO Later.
-
 		// 32KB full write		
 		if (p->cur_buf_ofs != 0)
-		{			
+		{
+			buffered_lr = p->buffered_lr[p->cur_lr_idx];
+			for (i = p->cur_buf_ofs; i < BDBM_MAX_PAGES; i++)
+			{
+				buffered_lr->logaddr.lpa[i] = -1; //workaround
+			}
+			
 			p->cur_lr_idx++;
 			if (p->cur_lr_idx == p->queuing_threshold)
 			{
@@ -347,6 +352,19 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 
 		for (i = 0; i < BDBM_MAX_PAGES; i++)
 		{
+			// cache hit check
+			entry = __hlm_nobuf_find_entry(lr->logaddr.lpa[i]);
+			if (entry != NULL)
+			{
+				bdbm_bug_on (entry->id != lr->logaddr.lpa[i]);		
+				bdbm_memcpy(p->buffered_lr[entry->lr_idx]->fmain.kp_ptr[entry->buf_ofs], lr->fmain.kp_ptr[i], KPAGE_SIZE);
+				
+				lr->fmain.kp_stt[i] = KP_STT_HOLE;
+				lr->logaddr.lpa[i] = -1;
+
+				continue;
+			}
+
 			((int64_t*)lr->foob.data)[i] = lr->logaddr.lpa[i];
 			ftl->invalidate_lpa(bdi, lr->logaddr.lpa[i], 1);
 
@@ -529,7 +547,7 @@ void __hlm_nobuf_check_background_gc (bdbm_drv_info_t* bdi)
 	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
-	if (ftl->is_gc_needed (bdi, 0) == BACKGROUND_GC) 
+	if (ftl->is_gc_needed (bdi, 0)) 
 	{
 		uint32_t ret = ftl->do_gc (bdi, p->utilization);
 	}
