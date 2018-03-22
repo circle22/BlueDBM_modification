@@ -616,6 +616,11 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		}
 	} 
 
+	if (bdi->parm_ftl.hlm_type == HLM_NO_BUFFER)
+	{
+		__hlm_nobuf_check_background_gc(bdi); 
+	}
+
 	return ret;
 }
 

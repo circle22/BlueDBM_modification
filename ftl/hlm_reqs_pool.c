@@ -48,17 +48,19 @@ THE SOFTWARE.
 uint64_t g_anReqCount[2][257] = {0, };
 uint64_t g_anTotal[2] = {0};
 
-#define MAX_REQUEST_ARRAY		1500
+#define MAX_REQUEST_ARRAY		1024
 uint16_t* gp_write_request;
 uint64_t  g_nTotal_write;
-
+uint64_t g_anCumulated_write[128] = {0,};
 
 void __hlm_req_pool_update_workload(uint64_t lpn)
 {
-	uint16_t* pCount = gp_write_request + (g_nTotal_write/32768)*64;
-	uint64_t plane = lpn % 64;
+	uint32_t slot = (g_nTotal_write/32768); // every 128MB.
+	uint16_t* pCount = gp_write_request + (slot % MAX_REQUEST_ARRAY)*64;
+	uint64_t plane = lpn % 128;
 
-	pCount[plane]++;
+	pCount[plane/2]++;
+	g_anCumulated_write[plane]++;
 	g_nTotal_write++;
 }
 
@@ -89,6 +91,24 @@ void __hlm_req_pool_print_workload(void)
 		pCount[112],pCount[113],pCount[114],pCount[115],pCount[116],pCount[117],pCount[118],pCount[119],
 		pCount[120],pCount[121],pCount[122],pCount[123],pCount[124],pCount[125],pCount[126],pCount[127]);
 */
+		bdbm_msg("total write %lld", g_nTotal_write);
+	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",
+		g_anCumulated_write[0],g_anCumulated_write[1],g_anCumulated_write[2],g_anCumulated_write[3],g_anCumulated_write[4],g_anCumulated_write[5],g_anCumulated_write[6],g_anCumulated_write[7],
+		g_anCumulated_write[8],g_anCumulated_write[9],g_anCumulated_write[10],g_anCumulated_write[11],g_anCumulated_write[12],g_anCumulated_write[13],g_anCumulated_write[14],g_anCumulated_write[15],
+		g_anCumulated_write[16],g_anCumulated_write[17],g_anCumulated_write[18],g_anCumulated_write[19],g_anCumulated_write[20],g_anCumulated_write[21],g_anCumulated_write[22],g_anCumulated_write[23],
+		g_anCumulated_write[24],g_anCumulated_write[25],g_anCumulated_write[26],g_anCumulated_write[27],g_anCumulated_write[28],g_anCumulated_write[29],g_anCumulated_write[30],g_anCumulated_write[31],
+		g_anCumulated_write[32],g_anCumulated_write[33],g_anCumulated_write[34],g_anCumulated_write[35],g_anCumulated_write[36],g_anCumulated_write[37],g_anCumulated_write[38],g_anCumulated_write[39],
+		g_anCumulated_write[40],g_anCumulated_write[41],g_anCumulated_write[42],g_anCumulated_write[43],g_anCumulated_write[44],g_anCumulated_write[45],g_anCumulated_write[46],g_anCumulated_write[47],
+		g_anCumulated_write[48],g_anCumulated_write[49],g_anCumulated_write[50],g_anCumulated_write[51],g_anCumulated_write[52],g_anCumulated_write[53],g_anCumulated_write[54],g_anCumulated_write[55],
+		g_anCumulated_write[56],g_anCumulated_write[57],g_anCumulated_write[58], g_anCumulated_write[59],g_anCumulated_write[60],g_anCumulated_write[61],g_anCumulated_write[62],g_anCumulated_write[63],
+		g_anCumulated_write[64], g_anCumulated_write[65], g_anCumulated_write[66],g_anCumulated_write[67], g_anCumulated_write[68],g_anCumulated_write[69],g_anCumulated_write[70], g_anCumulated_write[71],
+		g_anCumulated_write[72], g_anCumulated_write[73], g_anCumulated_write[74],g_anCumulated_write[75],g_anCumulated_write[76],g_anCumulated_write[77],g_anCumulated_write[78],g_anCumulated_write[79],
+		g_anCumulated_write[80],g_anCumulated_write[81],g_anCumulated_write[82],g_anCumulated_write[83],g_anCumulated_write[84],g_anCumulated_write[85],g_anCumulated_write[86],g_anCumulated_write[87],
+		g_anCumulated_write[88],g_anCumulated_write[89],g_anCumulated_write[90],g_anCumulated_write[91],g_anCumulated_write[92],g_anCumulated_write[93],g_anCumulated_write[94],g_anCumulated_write[95],
+		g_anCumulated_write[96],g_anCumulated_write[97],g_anCumulated_write[98],g_anCumulated_write[99],g_anCumulated_write[100],g_anCumulated_write[101],g_anCumulated_write[102],g_anCumulated_write[103],
+		g_anCumulated_write[104],g_anCumulated_write[105],g_anCumulated_write[106],g_anCumulated_write[107],g_anCumulated_write[108],g_anCumulated_write[109],g_anCumulated_write[110],g_anCumulated_write[111],
+		g_anCumulated_write[112],g_anCumulated_write[113],g_anCumulated_write[114],g_anCumulated_write[115],g_anCumulated_write[116],g_anCumulated_write[117],g_anCumulated_write[118],g_anCumulated_write[119],
+		g_anCumulated_write[120],g_anCumulated_write[121],g_anCumulated_write[122],g_anCumulated_write[123],g_anCumulated_write[124],g_anCumulated_write[125],g_anCumulated_write[126],g_anCumulated_write[127]);
 	}
 }
 
