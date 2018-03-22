@@ -91,7 +91,9 @@ void __hlm_req_pool_print_workload(void)
 		pCount[112],pCount[113],pCount[114],pCount[115],pCount[116],pCount[117],pCount[118],pCount[119],
 		pCount[120],pCount[121],pCount[122],pCount[123],pCount[124],pCount[125],pCount[126],pCount[127]);
 */
-		bdbm_msg("total write %lld", g_nTotal_write);
+	}
+
+	bdbm_msg("total write %lld", g_nTotal_write);
 	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",
 		g_anCumulated_write[0],g_anCumulated_write[1],g_anCumulated_write[2],g_anCumulated_write[3],g_anCumulated_write[4],g_anCumulated_write[5],g_anCumulated_write[6],g_anCumulated_write[7],
 		g_anCumulated_write[8],g_anCumulated_write[9],g_anCumulated_write[10],g_anCumulated_write[11],g_anCumulated_write[12],g_anCumulated_write[13],g_anCumulated_write[14],g_anCumulated_write[15],
@@ -109,7 +111,6 @@ void __hlm_req_pool_print_workload(void)
 		g_anCumulated_write[104],g_anCumulated_write[105],g_anCumulated_write[106],g_anCumulated_write[107],g_anCumulated_write[108],g_anCumulated_write[109],g_anCumulated_write[110],g_anCumulated_write[111],
 		g_anCumulated_write[112],g_anCumulated_write[113],g_anCumulated_write[114],g_anCumulated_write[115],g_anCumulated_write[116],g_anCumulated_write[117],g_anCumulated_write[118],g_anCumulated_write[119],
 		g_anCumulated_write[120],g_anCumulated_write[121],g_anCumulated_write[122],g_anCumulated_write[123],g_anCumulated_write[124],g_anCumulated_write[125],g_anCumulated_write[126],g_anCumulated_write[127]);
-	}
 }
 
 
