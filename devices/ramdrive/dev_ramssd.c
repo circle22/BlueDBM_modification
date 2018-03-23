@@ -44,6 +44,13 @@ THE SOFTWARE.
 
 //#define DATA_CHECK
 
+#ifdef DUMMY_SSD
+#ifdef DATA_CHECK
+	#error "data check is not allowed on dummy ssd mode"
+#endif
+#endif
+
+
 #if defined (DATA_CHECK)
 static void* __ptr_ramssd_data = NULL;
 static uint8_t* __get_ramssd_data_addr (dev_ramssd_info_t* ri, uint64_t lpa)
@@ -146,6 +153,14 @@ static void* __ramssd_alloc_ssdram (bdbm_device_params_t* ptr_np)
 		BDBM_SIZE_KB(ptr_np->device_capacity_in_byte),
 		BDBM_SIZE_MB(ptr_np->device_capacity_in_byte));
 
+#ifdef DUMMY_SSD
+	page_size_in_bytes = ptr_np->page_oob_size;
+
+	ssd_size_in_bytes = 
+		nr_pages_in_ssd * 
+		page_size_in_bytes;
+#endif
+
 	/* allocate the memory for the SSD */
 	if ((ptr_ramssd = (void*)bdbm_malloc
 			(ssd_size_in_bytes * sizeof (uint8_t))) == NULL) {
@@ -195,7 +210,10 @@ static uint8_t __ramssd_read_page (
 {
 	uint8_t ret = 0;
 	uint8_t* ptr_ramssd_addr = NULL;
-	uint32_t nr_kpages, loop;
+#ifndef DUMMY_SSD
+	uint32_t nr_kpages;
+#endif
+	uint32_t loop;
 
 	/* get the memory address for the destined page */
 	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
@@ -203,7 +221,7 @@ static uint8_t __ramssd_read_page (
 		ret = 1;
 		goto fail;
 	}
-
+#ifndef DUMMY_SSD
 	/* for better performance, RAMSSD directly copies the SSD data to kernel pages */
 	nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
 	if (ri->np->page_main_size % KERNEL_PAGE_SIZE != 0) {
@@ -234,6 +252,17 @@ static uint8_t __ramssd_read_page (
 			ri->np->page_oob_size
 		);
 	}
+#else
+	/* copy the OOB data to a buffer */
+	if (partial == 0 && oob && oob_data != NULL) {
+		bdbm_memcpy (oob_data, 
+				ptr_ramssd_addr,
+			ri->np->page_oob_size
+		);
+	}
+#endif
+
+
 
 #if defined (DATA_CHECK)
 	if (ri->np->nr_subpages_per_page == 1) {
@@ -284,8 +313,10 @@ static uint8_t __ramssd_prog_page (
 {
 	uint8_t ret = 0;
 	uint8_t* ptr_ramssd_addr = NULL;
-	uint32_t nr_kpages, loop;
-
+#ifndef DUMMY_SSD
+	uint32_t nr_kpages;
+#endif
+	uint32_t loop;
 	/* get the memory address for the destined page */
 	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
 		bdbm_error ("invalid ram addr (%p)", ptr_ramssd_addr);
@@ -293,6 +324,7 @@ static uint8_t __ramssd_prog_page (
 		goto fail;
 	}
 
+#ifndef DUMMY_SSD
 	/* for better performance, RAMSSD directly copies the SSD data to pages */
 	nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
 	if (ri->np->page_main_size % KERNEL_PAGE_SIZE != 0) {
@@ -324,6 +356,17 @@ static uint8_t __ramssd_prog_page (
 			ri->np->page_oob_size
 		);
 	}
+#else
+	/* copy the OOB data to a buffer */
+	if (oob && oob_data != NULL) {
+		bdbm_memcpy (
+			ptr_ramssd_addr,
+			oob_data,
+			ri->np->page_oob_size
+		);
+	}
+#endif
+
 
 #if defined (DATA_CHECK)
 	if (ri->np->nr_subpages_per_page == 1) {

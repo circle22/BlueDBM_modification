@@ -94,7 +94,7 @@ void __hlm_req_pool_print_workload(void)
 	}
 
 	bdbm_msg("total write %lld", g_nTotal_write);
-	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",
+	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\ 
 		g_anCumulated_write[0],g_anCumulated_write[1],g_anCumulated_write[2],g_anCumulated_write[3],g_anCumulated_write[4],g_anCumulated_write[5],g_anCumulated_write[6],g_anCumulated_write[7],
 		g_anCumulated_write[8],g_anCumulated_write[9],g_anCumulated_write[10],g_anCumulated_write[11],g_anCumulated_write[12],g_anCumulated_write[13],g_anCumulated_write[14],g_anCumulated_write[15],
 		g_anCumulated_write[16],g_anCumulated_write[17],g_anCumulated_write[18],g_anCumulated_write[19],g_anCumulated_write[20],g_anCumulated_write[21],g_anCumulated_write[22],g_anCumulated_write[23],
@@ -102,7 +102,9 @@ void __hlm_req_pool_print_workload(void)
 		g_anCumulated_write[32],g_anCumulated_write[33],g_anCumulated_write[34],g_anCumulated_write[35],g_anCumulated_write[36],g_anCumulated_write[37],g_anCumulated_write[38],g_anCumulated_write[39],
 		g_anCumulated_write[40],g_anCumulated_write[41],g_anCumulated_write[42],g_anCumulated_write[43],g_anCumulated_write[44],g_anCumulated_write[45],g_anCumulated_write[46],g_anCumulated_write[47],
 		g_anCumulated_write[48],g_anCumulated_write[49],g_anCumulated_write[50],g_anCumulated_write[51],g_anCumulated_write[52],g_anCumulated_write[53],g_anCumulated_write[54],g_anCumulated_write[55],
-		g_anCumulated_write[56],g_anCumulated_write[57],g_anCumulated_write[58], g_anCumulated_write[59],g_anCumulated_write[60],g_anCumulated_write[61],g_anCumulated_write[62],g_anCumulated_write[63],
+		g_anCumulated_write[56],g_anCumulated_write[57],g_anCumulated_write[58], g_anCumulated_write[59],g_anCumulated_write[60],g_anCumulated_write[61],g_anCumulated_write[62],g_anCumulated_write[63]);
+
+	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\ 
 		g_anCumulated_write[64], g_anCumulated_write[65], g_anCumulated_write[66],g_anCumulated_write[67], g_anCumulated_write[68],g_anCumulated_write[69],g_anCumulated_write[70], g_anCumulated_write[71],
 		g_anCumulated_write[72], g_anCumulated_write[73], g_anCumulated_write[74],g_anCumulated_write[75],g_anCumulated_write[76],g_anCumulated_write[77],g_anCumulated_write[78],g_anCumulated_write[79],
 		g_anCumulated_write[80],g_anCumulated_write[81],g_anCumulated_write[82],g_anCumulated_write[83],g_anCumulated_write[84],g_anCumulated_write[85],g_anCumulated_write[86],g_anCumulated_write[87],

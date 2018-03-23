@@ -43,6 +43,9 @@ THE SOFTWARE.
 #include "params.h"
 #include "utime.h"
 
+
+#define DUMMY_SSD		// to reduce DRAM footprint
+
 typedef struct {
 	void* ptr_req;
 	int64_t target_elapsed_time_us;
@@ -107,8 +110,12 @@ uint64_t dev_ramssd_get_page_size_oob (dev_ramssd_info_t* ptr_ramssd_info) {
 
 inline static 
 uint64_t dev_ramssd_get_page_size (dev_ramssd_info_t* ptr_ramssd_info) {
+#ifndef DUMMY_SSD
 	return ptr_ramssd_info->np->page_main_size +
 		ptr_ramssd_info->np->page_oob_size;
+#else
+	return ptr_ramssd_info->np->page_oob_size;
+#endif
 }
 
 inline static 
