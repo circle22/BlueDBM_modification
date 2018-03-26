@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+echo "hello world"
+printf "hello wr\n"
+printf "%s %s\n" hello wr
+echo "test"
+
+echo "param ${@}"
+echo "param ${1}"
+echo "param ${2}"
+echo "param ${3}"
+
+
+count=0
+
+for loop in {1..5}
+do
+	for CP	in 3 4 2
+	do
+		for factor in 0 70 75 80 85 90 95
+		do
+			for portion in 10 12 14 16
+			do
+				echo "test CP ${CP} ${factor}  ${portion} - loop ${loop}"
+			
+				sh ./umount.sh
+				sleep 1s
+			
+				sh ./mount_batch.sh ${factor} ${portion} ${CP}
+				
+				echo "fill seq"
+				sudo fio SeqWrite_raw 
+				sleep 2s
+			
+				echo "random write"
+				sudo fio RandomWrite64GB >> log_CP${CP}_perf_factor${factor}_p${portion}.txt 
+				dmesg >> log_CP${CP}_dmesg_factor${factor}_p${portion}_${loop}.txt
+				sleep 2s
+			done
+		done
+	done
+done
+
+
+for i in {1..25}
+do
+#	echo ${i}
+#	sh ./umount.sh
+#	sh ./mount_ext4.sh 
+#	sudo fio SeqWrite_raw > test1.txt
+#	sudo fio RandomWrite128GB >> test.txt 
+
+#	echo ${i}
+
+#	dmesg >> "mode_test_${i}.txt"
+
+done
+
+

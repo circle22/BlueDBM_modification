@@ -1,0 +1,17 @@
+[global]
+bs=4k
+direct=1
+rw=randwrite
+#directory=/media/blueDBM/
+filename=/dev/blueDBM
+
+ioengine=libaio
+iodepth=128
+runtime=3600
+size=64GB
+norandommap
+
+[write0]
+
+
+
