@@ -210,7 +210,8 @@ bdbm_abm_info_t* bdbm_abm_create (
 
 	bai->nr_gc_ondemand_threshold = np->nr_channels * np->nr_chips_per_channel * np->nr_planes* GC_ONDEMAND_THRESHOLD;
 	bai->nr_gc_background_threshold = np->nr_channels * np->nr_chips_per_channel * np->nr_planes* GC_BACKGROUND_THRESHOLD;
-	
+	bai->pnr_blk_invalid = (uint32_t*)bdbm_zmalloc (sizeof (uint32_t) * np->nr_blocks_per_chip);
+
 	/* done */
 	return bai;
 
@@ -443,6 +444,11 @@ void bdbm_abm_erase_block (
 	if (blk->pst) {
 		bdbm_memset (blk->pst, (0x1 << bai->np->nr_subpages_per_page) - 1, bai->np->nr_pages_per_block); // 0xF for 4 subpages, 0x3 for 2 subpages.
 	}
+
+	if ((channel_no == 0) && (chip_no == 0))
+	{
+		bai->pnr_blk_invalid[block_no/PLANE_NUMBER] = 0;
+	}
 }
 
 void bdbm_abm_set_to_dirty_block (
@@ -585,6 +591,8 @@ void bdbm_abm_invalidate_page (
 		/* increase # of invalid pages in the block */
 		b->nr_invalid_subpages++;
 		bdbm_bug_on (b->nr_invalid_subpages > bai->np->nr_subpages_per_block);
+
+		bai->pnr_blk_invalid[block_no/PLANE_NUMBER]++;
 	}
 	else 
 	{

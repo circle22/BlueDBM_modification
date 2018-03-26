@@ -37,9 +37,9 @@ THE SOFTWARE.
 #define UTILIZATION_LAZY_MODE	(70)
 #define UTILIZATION_EARLY_MODE	(30)
 
-#define GENERATION_FACTOR_WEIGHT	(7/10)  // Same level of invalid page compared to CP_max Blk
-#define LAZY_MODE_THRESHOLD			(12/10)	// CP_max block's proportion over average
-#define EARLY_MODE_THRESHOLD		(9/10) // whether 90% of tatal blks are CP0 or not
+#define GENERATION_FACTOR_WEIGHT	95/100  // Same level of invalid page compared to CP_max Blk
+#define LAZY_MODE_THRESHOLD			16/10	// CP_max block's proportion over average
+#define EARLY_MODE_THRESHOLD		9/10 // whether 90% of tatal blks are CP0 or not
 
 #define PLANE_NUMBER	(2)
 #define GC_FACTOR		(0)

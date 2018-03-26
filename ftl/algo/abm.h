@@ -93,7 +93,7 @@ typedef struct {
 	uint64_t nr_gc_ondemand_threshold;
 	uint64_t nr_gc_background_threshold;
 	uint64_t anr_free_blks[8][8];
-
+	uint32_t* pnr_blk_invalid;
 } bdbm_abm_info_t;
 
 bdbm_abm_info_t* bdbm_abm_create (bdbm_device_params_t* np, uint8_t use_pst);

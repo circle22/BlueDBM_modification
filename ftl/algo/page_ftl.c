@@ -1095,6 +1095,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 		uint64_t blk_info;
 		bdbm_abm_block_t* block = bdbm_abm_fetch_dirty_block (pos);
 
+#if 0
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
 			uint64_t ch, chip;
@@ -1113,24 +1114,34 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 			}
 		}
 		
-		if (invalid_pages == full_invalid_pages) 
+		if (p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER] != invalid_pages)
 		{
-			victim = block;
-			break;
+			bdbm_msg("diff :%lld, %lld, blk :%lld", p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER], invalid_pages, block->block_no);
 		}
-		
+#else
+		invalid_pages = p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER]; 	
+		for (plane = 1; plane < np->nr_planes; plane++)
+		{
+			pos = pos->next; // next plane;
+		}		
+
+#endif
+	
 		blk_info = block->copy_count;
 		if (apVictim[blk_info] == NULL)
 		{
 			apVictim[blk_info] = block;
 			anMax_invalid_pages[blk_info] = invalid_pages;
-			continue;
 		}
-
-		if (invalid_pages > anMax_invalid_pages[blk_info])
+		else if (invalid_pages > anMax_invalid_pages[blk_info])
 		{
 			apVictim[blk_info] = block;
 			anMax_invalid_pages[blk_info] = invalid_pages;
+		}
+
+		if (invalid_pages == full_invalid_pages) 
+		{
+			break;
 		}
 	}
 
@@ -1167,7 +1178,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 #endif
 
 //		cost = anMax_invalid_pages[index] + (np->nr_pages_per_block - p->gc_dst_blk_offs[dst_idx][0])*GC_FACTOR / np->nr_pages_per_block;
-		
+	
 		if (max_generation_factor < generation_factor)
 		{
 			max_generation_factor = generation_factor;
