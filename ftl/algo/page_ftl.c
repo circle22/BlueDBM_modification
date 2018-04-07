@@ -142,6 +142,7 @@ typedef struct {
 	uint64_t gc_count;
 	uint64_t utilization;
 	uint64_t gc_mode;
+	uint64_t alloc_idx;
 } bdbm_page_ftl_private_t;
 
 
@@ -429,6 +430,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->utilization = 0;
 	p->gc_mode = 0;
 
+	p->alloc_idx = 0;
 	return 0;
 }
 
@@ -637,7 +639,7 @@ void bdbm_page_ftl_print_copyback_info(bdbm_drv_info_t* bdi)
 	}
 #else
 
-	bdbm_msg(" Blk_distribution:%lld,%lld,%lld,%lld,%lld,%lld, gc %lld", p->block_info[0],p->block_info[1],p->block_info[2],p->block_info[3],p->block_info[4],p->block_info[5], p->gc_count );
+	bdbm_msg("B %lld:%lld,%lld,%lld,%lld,%lld,%lld, gc %lld",p->alloc_idx, p->block_info[0],p->block_info[1],p->block_info[2],p->block_info[3],p->block_info[4],p->block_info[5], p->gc_count );
 
 #endif
 
@@ -700,11 +702,10 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 		//	bdbm_msg("Alloc_HostFreeBlk");
 			bdbm_page_ftl_print_copyback_info(bdi);
 
+			p->alloc_idx++;
 			if ( p->gc_copy_count != 0)
-			{
-		
-				bdbm_msg("total %lld, internal %lld, die %lld, partial %lld, refresh %lld, %lld, blk: %lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count,p->ac_bab[0]->block_no);	
-	
+			{	
+				bdbm_msg("T %lld,I %lld,D %lld,P %lld,R %lld, %lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count);	
 			}
 		}
 	} else {
@@ -1500,7 +1501,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-	bdbm_msg("GC %lld, Alloc Src %lld, U %lld, M %d", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode); 
+	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai) ); 
+	//bdbm_msg("GC %lld,V %lld,U %lld,M %d", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode); 
 }
 
 void check_valid_bitmap(bdbm_abm_block_t* blk)
@@ -1944,7 +1946,6 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 			bdbm_page_ftl_restore_srcblk(bdi);
 			p->src_valid = 0;
 			p->gc_count++;
-
 			return 0;
 		}
 	}
@@ -2248,6 +2249,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
 	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
 
 	static uint32_t state = 0;
 	p->utilization = utilization;	
@@ -2264,6 +2266,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 		}
 	}
 
+#if 0
 	if ((state == 0) && (hlm_gc_w->nr_llm_reqs >= atomic64_read(&hlm_gc_w->nr_llm_reqs_done)+p->nr_punits))
 	{
 		// write should not be pended too much
@@ -2275,7 +2278,22 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 		// read should be finished
 		return 1;
 	}
+#else
+	if (state == 0) 
+	{
+		if (bdi->ptr_llm_inf->get_queuing_count(bdi) > np->nr_chips_per_ssd)
+		{
+			// write should not be pended too much
+			return 0;
+		}
+	}
 
+	if ((state == 1) && (hlm_gc->nr_llm_reqs > atomic64_read(&hlm_gc->nr_llm_reqs_done)))
+	{
+		// read should be finished
+		return 1;
+	}
+#endif
 	p->nop_count = 0;
 	
 	if (state == 0)

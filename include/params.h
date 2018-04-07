@@ -27,8 +27,8 @@ THE SOFTWARE.
 
 #define DWHONG	// Test
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
-#define MAX_COPY_BACK	(4 + 1) // +1 is used for default or external copyback case
-//#define INFINITE_COPYBACK	// 
+#define MAX_COPY_BACK	(0 + 1) // +1 is used for default or external copyback case
+#define INFINITE_COPYBACK	// 
 
 // GC_Operation Mode
 #define GC_OPERATION_MODE		0	// 0 - default, 1 - laze mode, 2 - Early mode, 3 Lazy + Early
@@ -37,15 +37,15 @@ THE SOFTWARE.
 #define UTILIZATION_LAZY_MODE	(70)
 #define UTILIZATION_EARLY_MODE	(30)
 
-#define GENERATION_FACTOR_WEIGHT	95/100  // Same level of invalid page compared to CP_max Blk
-#define LAZY_MODE_THRESHOLD			16/10	// CP_max block's proportion over average
+#define GENERATION_FACTOR_WEIGHT	100/100  // Same level of invalid page compared to CP_max Blk
+#define LAZY_MODE_THRESHOLD			10/10	// CP_max block's proportion over average
 #define EARLY_MODE_THRESHOLD		9/10 // whether 90% of tatal blks are CP0 or not
 
 #define PLANE_NUMBER	(2)
 #define GC_FACTOR		(0)
 
-#define GC_BACKGROUND_THRESHOLD		(5)
-#define GC_ONDEMAND_THRESHOLD		(2) // + MAX_COPY_BACK)
+#define GC_BACKGROUND_THRESHOLD		(0+5)*2
+#define GC_ONDEMAND_THRESHOLD		(0+2)*2 // + MAX_COPY_BACK)
 
 #define KERNEL_SECTOR_SIZE	512					/* kernel sector size is usually set to 512 bytes */
 #define KSECTOR_SIZE		KERNEL_SECTOR_SIZE

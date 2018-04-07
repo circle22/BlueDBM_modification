@@ -803,7 +803,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			case REQTYPE_RMW_WRITE:
 			case REQTYPE_META_WRITE:
 
-#ifndef DWHONG
+#ifndef  DWHONG
 				target_elapsed_time_us = ri->np->page_prog_time_us;
 #else
 
@@ -876,7 +876,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			case REQTYPE_META_READ:
 
 				target_elapsed_time_us = ri->np->page_read_time_us;
-#ifdef DWHONG
+#ifdef	DWHONG
 				// check the channel busy time
 				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
 				channel_busy_time = ri->np->read_dma_time_us;

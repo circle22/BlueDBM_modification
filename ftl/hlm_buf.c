@@ -74,16 +74,17 @@ int __hlm_buf_thread (void* arg)
 	bdbm_ftl_inf_t* ftl = (bdbm_ftl_inf_t*)BDBM_GET_FTL_INF(bdi);
 	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)(_hlm_buf_inf.ptr_private);	
 	bdbm_hlm_req_t* r;
-	uint64_t count = 0;
-	uint64_t loop = 0;	
+	uint64_t idle_count = 0;
+	uint64_t idle_loop = 0;	
+	uint64_t busy_count = 0;
 
 	for (;;) {
 		if (bdbm_queue_is_all_empty (p->q)) {
-			count++;
-			if ((count % 10000000) == 0)
+			idle_count++;
+			if ((idle_count % 10000000) == 0)
 			{
-				bdbm_msg ("cnt:%d, loop:%lld,  hlm items = %llu", count, loop, bdbm_queue_get_nr_items (p->q));
-				loop++;
+				bdbm_msg ("cnt:%llu, loop:%lld,  hlm items = %llu", idle_count, idle_loop, bdbm_queue_get_nr_items (p->q));
+				idle_loop++;
 
 				if (ftl->is_gc_needed(bdi, 0) == 0)
 				{
@@ -100,7 +101,7 @@ int __hlm_buf_thread (void* arg)
 
 				hlm_nobuf_flush_buffer(bdi);
 
-				if (loop == 0)
+				if (idle_loop == 0)
 				{
 					utilization = hlm_nobuf_get_utilization(bdi); 
 				}
@@ -111,9 +112,11 @@ int __hlm_buf_thread (void* arg)
 				}
 				while ((ret != 0));
 			}
+			bdbm_thread_yield();
 		}
 
 		/* if nothing is in Q, then go to the next punit */
+		busy_count = 0;
 		while (!bdbm_queue_is_empty (p->q, 0)) {
 			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, 0)) != NULL) {
 //				bdbm_msg("call make_req");
@@ -135,10 +138,16 @@ int __hlm_buf_thread (void* arg)
 				uint32_t ret = ftl->do_gc (bdi, utilization);
 			}
 
-			count = 0;
-			loop = 0;
+			busy_count++;
+			if ( (busy_count % 100000) == 0)
+			{
+				bdbm_thread_yield();
+			}
+
+			idle_count = 0;
+			idle_loop = 0;
 		} 
-		
+	
 	}
 
 	return 0;

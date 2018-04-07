@@ -84,6 +84,7 @@ int __llm_mq_thread (void* arg)
 	struct bdbm_llm_mq_private* p = (struct bdbm_llm_mq_private*)BDBM_LLM_PRIV(bdi);
 	uint64_t loop;
 	uint64_t cnt = 0;
+	uint64_t empty_loop = 0;
 
 	if (p == NULL || p->q == NULL || p->llm_thread == NULL) {
 		bdbm_msg ("invalid parameters (p=%p, p->q=%p, p->llm_thread=%p",
@@ -94,17 +95,18 @@ int __llm_mq_thread (void* arg)
 	for (;;) {
 		/* give a chance to other processes if Q is empty */
 		if (bdbm_prior_queue_is_all_empty (p->q)) {
-			bdbm_thread_schedule_setup (p->llm_thread);
-			if (bdbm_prior_queue_is_all_empty (p->q)) {
+			empty_loop++;
+
+			if ((empty_loop % 1000) == 0)
+			{
 				/* ok... go to sleep */
-				if (bdbm_thread_schedule_sleep (p->llm_thread) == SIGKILL)
+				if (bdbm_thread_schedule(p->llm_thread) == SIGKILL)
 					break;
-			} else {
-				/* there are items in Q; wake up */
-				bdbm_thread_schedule_cancel (p->llm_thread);
 			}
+
+			continue;
 		}	
-	
+
 		/* send reqs until Q becomes empty */
 		for (loop = 0; loop < p->nr_punits; loop++) {
 			bdbm_prior_queue_item_t* qitem = NULL;
@@ -116,7 +118,6 @@ int __llm_mq_thread (void* arg)
 				continue;
 			}
 
-
 			if ((r = (bdbm_llm_req_t*)bdbm_prior_queue_dequeue (p->q, loop, &qitem)) == NULL) {
 				bdbm_sema_unlock (&p->punit_locks[loop]);
 				continue;
@@ -126,9 +127,10 @@ int __llm_mq_thread (void* arg)
 
 			pmu_update_q (bdi, r);
 
-			if (cnt % 50000 == 0) 
+			if (cnt % 100000 == 0) 
 			{
 			//	bdbm_msg ("llm_make_req: %llu, %llu", cnt, bdbm_prior_queue_get_nr_items (p->q));
+				bdbm_thread_yield();	
 			}
 
 			if (bdi->ptr_dm_inf->make_req (bdi, r)) {
@@ -140,6 +142,7 @@ int __llm_mq_thread (void* arg)
 			}
 
 			cnt++;
+			empty_loop = 0;
 		}
 	}
 

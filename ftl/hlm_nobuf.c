@@ -276,8 +276,6 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 	bdbm_hlm_hash_entry* entry = NULL; 
 	bdbm_llm_req_t* buffered_lr = NULL; 
 
-	p->cumulative_check_count++;
-	p->cumulative_pending_count += (p->queuing_lr_count);
 
 	if (lr->logaddr.ofs != -1)
 	{
@@ -348,6 +346,8 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 				p->cur_lr_idx = 0;
 			}			
 			p->queuing_lr_count++;
+			p->cumulative_check_count++;
+			p->cumulative_pending_count += (p->queuing_lr_count);
 		}
 
 		for (i = 0; i < BDBM_MAX_PAGES; i++)
@@ -392,6 +392,8 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 		}
 
 		p->queuing_lr_count++;
+		p->cumulative_check_count++;
+		p->cumulative_pending_count += (p->queuing_lr_count);
 	}
 
 	if (registered == 1)
@@ -415,6 +417,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
 	bdbm_llm_req_t* lr = NULL;
 	uint64_t i = 0, j = 0, sp_ofs;
+	static uint64_t loop_cnt = 0;
 
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
@@ -427,18 +430,33 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 			__hlm_flush_buffer(bdi);
 
 			p->utilization = (p->cumulative_pending_count * 100)/(p->queuing_threshold * p->cumulative_check_count);
+			//bdbm_msg("utilization :%lld, %lld", p->utilization, p->queuing_lr_count);
+			
 			if (p->cumulative_check_count > 2048)
 			{
-				p->cumulative_pending_count /= 2;
-				p->cumulative_check_count/= 2; 
+				p->cumulative_pending_count = p->cumulative_pending_count*9/10;
+				p->cumulative_check_count = p->cumulative_check_count*9/10;
 			}
 		}
 	}
 
-	if (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs - 1))
+	if ( (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs - 1)) && (bdbm_is_write (hr->req_type)))
 	{
+		loop_cnt++;
+		if ( loop_cnt < 10000000)
+		{
+			if ( (loop_cnt % 1000000) == 0)
+			{
+				bdbm_msg("hlm_empty loop : %lld", loop_cnt);
+			}	
+		}
+
+		
 		return 2;
 	} 
+
+	loop_cnt = 0;
+
 	/* perform mapping with the FTL */
 	bdbm_hlm_for_each_llm_req (lr, hr, i) {
 		/* (1) get the physical locations through the FTL */
@@ -684,7 +702,15 @@ uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
 		{
 			__hlm_flush_buffer(bdi);
 
-			p->utilization = (p->queuing_lr_count * 100)/p->queuing_threshold;
+			if ((p->queuing_lr_count * 100)/p->queuing_threshold < p->utilization)
+			{
+				// utilization adjustment.
+				//bdbm_msg("utilization adj : %lld, %lld", p->utilization, (p->queuing_lr_count * 100)/p->queuing_threshold);
+				p->utilization = (p->queuing_lr_count * 100)/p->queuing_threshold;				
+				p->cumulative_check_count = 1024;
+				p->cumulative_pending_count = p->utilization * p->queuing_threshold * p->cumulative_check_count / 100; 
+			}
+
 		}
 
 		return 1;
