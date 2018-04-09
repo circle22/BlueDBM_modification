@@ -70,6 +70,7 @@ typedef struct {
 	uint64_t queuing_lr_count;
 
 	uint64_t flush_threshold; // ch x bank
+	uint64_t flush_lpn_count; // flush_threshold x subpages/page
 	uint64_t queuing_threshold; // ch x bank x 4
 
 	// utilization
@@ -129,6 +130,7 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 	p->queuing_lr_count = 0;
 
 	p->flush_threshold = bdi->parm_dev.nr_channels * bdi->parm_dev.nr_chips_per_channel;
+	p->flush_lpn_count = p->flush_threshold * bdi->parm_dev.nr_subpages_per_page;
 	p->queuing_threshold = BUFFERING_LLM_COUNT; // ch x bank x 4	
 	
 	// utilization
@@ -413,7 +415,6 @@ void _display_hex_values (uint8_t* host)
 
 uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 {
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
 	bdbm_ftl_inf_t* ftl = BDBM_GET_FTL_INF(bdi);
 	bdbm_llm_req_t* lr = NULL;
 	uint64_t i = 0, j = 0, sp_ofs;
@@ -421,24 +422,7 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 
 	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
 
-	if (p->queuing_lr_count >= p->flush_threshold)
-	{
-		//	depend on pending count.
-		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_chips_per_ssd) &&
-			(ftl->is_gc_needed(bdi, 0) != ON_DEMAND_GC))
-		{
-			__hlm_flush_buffer(bdi);
-
-			p->utilization = (p->cumulative_pending_count * 100)/(p->queuing_threshold * p->cumulative_check_count);
-			//bdbm_msg("utilization :%lld, %lld", p->utilization, p->queuing_lr_count);
-			
-			if (p->cumulative_check_count > 2048)
-			{
-				p->cumulative_pending_count = p->cumulative_pending_count*9/10;
-				p->cumulative_check_count = p->cumulative_check_count*9/10;
-			}
-		}
-	}
+	hlm_nobuf_flush_buffer(bdi);
 
 	if ( (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs - 1)) && (bdbm_is_write (hr->req_type)))
 	{
@@ -450,7 +434,6 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 				bdbm_msg("hlm_empty loop : %lld", loop_cnt);
 			}	
 		}
-
 		
 		return 2;
 	} 
@@ -698,26 +681,28 @@ uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
 	{
 		//	depend on pending count.
 		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_chips_per_ssd) &&
+#ifdef FLOW_CTRL			
+			(ftl->get_token(bdi) >= p->flush_lpn_count))
+#else
 			(ftl->is_gc_needed(bdi, 0) != ON_DEMAND_GC))
+#endif
 		{
 			__hlm_flush_buffer(bdi);
 
-			if ((p->queuing_lr_count * 100)/p->queuing_threshold < p->utilization)
+#ifdef FLOW_CTRL						
+			ftl->consume_token(bdi, p->flush_lpn_count);
+#endif
+			p->utilization = (p->cumulative_pending_count * 100)/(p->queuing_threshold * p->cumulative_check_count);
+			//bdbm_msg("utilization :%lld, %lld", p->utilization, p->queuing_lr_count);
+			
+			if (p->cumulative_check_count > 2048)
 			{
-				// utilization adjustment.
-				//bdbm_msg("utilization adj : %lld, %lld", p->utilization, (p->queuing_lr_count * 100)/p->queuing_threshold);
-				p->utilization = (p->queuing_lr_count * 100)/p->queuing_threshold;				
-				p->cumulative_check_count = 1024;
-				p->cumulative_pending_count = p->utilization * p->queuing_threshold * p->cumulative_check_count / 100; 
+				p->cumulative_pending_count = p->cumulative_pending_count*9/10;
+				p->cumulative_check_count = p->cumulative_check_count*9/10;
 			}
-
 		}
+	}
 
-		return 1;
-	}
-	else
-	{
-		return 0;
-	}
+	return 0;
 }
 

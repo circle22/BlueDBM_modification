@@ -26,20 +26,21 @@ THE SOFTWARE.
 #define _BLUEDBM_PARAMS_H
 
 #define DWHONG	// Test
+#define FLOW_CTRL
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(0 + 1) // +1 is used for default or external copyback case
-#define INFINITE_COPYBACK	// 
+//#define INFINITE_COPYBACK	// 
 
 // GC_Operation Mode
 #define GC_OPERATION_MODE		0	// 0 - default, 1 - laze mode, 2 - Early mode, 3 Lazy + Early
 #define LAZY_CORRECTION_MODE	(GC_OPERATION_MODE % 2)
 #define EARLY_CORRECTION_MODE	(GC_OPERATION_MODE / 2)
 #define UTILIZATION_LAZY_MODE	(70)
-#define UTILIZATION_EARLY_MODE	(30)
+#define UTILIZATION_EARLY_MODE	(50)
 
-#define GENERATION_FACTOR_WEIGHT	100/100  // Same level of invalid page compared to CP_max Blk
+#define GENERATION_FACTOR_WEIGHT	80/100  // Same level of invalid page compared to CP_max Blk
 #define LAZY_MODE_THRESHOLD			10/10	// CP_max block's proportion over average
-#define EARLY_MODE_THRESHOLD		9/10 // whether 90% of tatal blks are CP0 or not
+#define EARLY_MODE_THRESHOLD		10/10 // whether 90% of tatal blks are CP0 or not
 
 #define PLANE_NUMBER	(2)
 #define GC_FACTOR		(0)

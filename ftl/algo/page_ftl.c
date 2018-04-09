@@ -61,6 +61,9 @@ bdbm_ftl_inf_t _ftl_page_ftl = {
 	.do_gc = bdbm_page_ftl_do_gc,
 	.is_gc_needed = bdbm_page_ftl_is_gc_needed,
 	.scan_badblocks = bdbm_page_badblock_scan,
+
+	.get_token = bdbm_page_ftl_get_token,
+	.consume_token = bdbm_page_ftl_consume_token,
 	/*.load = bdbm_page_ftl_load,*/
 	/*.store = bdbm_page_ftl_store,*/
 	/*.get_segno = NULL,*/
@@ -143,6 +146,11 @@ typedef struct {
 	uint64_t utilization;
 	uint64_t gc_mode;
 	uint64_t alloc_idx;
+
+	// flow ctrl
+	uint32_t token_mode; // on / off
+	uint32_t token_count; // valid only when token mode is on.
+	uint32_t generated_token;
 } bdbm_page_ftl_private_t;
 
 
@@ -431,6 +439,11 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->gc_mode = 0;
 
 	p->alloc_idx = 0;
+
+	p->token_mode = 0; // on / off
+	p->token_count = 0; // valid only when token mode is on.
+	p->generated_token = 0;
+	
 	return 0;
 }
 
@@ -696,10 +709,9 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			p->curr_page_ofs = 0;
 			
 			//bdbm_page_ftl_print_hostWrite();
-
-//			bdbm_page_ftl_print_WAF();
-		//	bdbm_page_ftl_print_totalEC(bdi);
-		//	bdbm_msg("Alloc_HostFreeBlk");
+			//bdbm_page_ftl_print_WAF();
+			//bdbm_page_ftl_print_totalEC(bdi);
+			//bdbm_msg("Alloc_HostFreeBlk");
 			bdbm_page_ftl_print_copyback_info(bdi);
 
 			p->alloc_idx++;
@@ -949,11 +961,18 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		/* invoke gc when remaining free blocks are less than 1% of total blocks */
 		if (nr_free_blks <= p->bai->nr_gc_ondemand_threshold)
 		{
+			if (p->token_mode == 0)
+			{
+				p->token_mode = 1;
+				p->token_count = 0;
+			}
 			// on demand GC.
 			return ON_DEMAND_GC;
 		}
 		else if (nr_free_blks < p->bai->nr_gc_background_threshold)
 		{
+			p->token_mode = 0;
+			
 			// back ground GC.
 			return BACKGROUND_GC;
 		}
@@ -1484,6 +1503,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 		}
 	}
 
+	p->generated_token = (np->nr_subpages_per_block - p->src_valid_page_count) / np->nr_pages_per_block;
+	
 	p->dst_index = src_blk[0].copy_count + 1;
 	if (p->dst_index == MAX_COPY_BACK)
 	{
@@ -1501,7 +1522,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai) ); 
+	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai), p->generated_token); 
 	//bdbm_msg("GC %lld,V %lld,U %lld,M %d", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode); 
 }
 
@@ -2281,17 +2302,20 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 #else
 	if (state == 0) 
 	{
-		if (bdi->ptr_llm_inf->get_queuing_count(bdi) > np->nr_chips_per_ssd)
+		if (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_chips_per_ssd)
 		{
 			// write should not be pended too much
 			return 0;
 		}
 	}
 
-	if ((state == 1) && (hlm_gc->nr_llm_reqs > atomic64_read(&hlm_gc->nr_llm_reqs_done)))
+	if (state == 1) 
 	{
-		// read should be finished
-		return 1;
+		if ((hlm_gc->nr_llm_reqs > atomic64_read(&hlm_gc->nr_llm_reqs_done)) || (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_chips_per_ssd))
+		{
+			// read should be finished
+			return 1;
+		}
 	}
 #endif
 	p->nop_count = 0;
@@ -2303,6 +2327,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 	else
 	{		
 		state = bdbm_page_ftl_gc_write_state_adv(bdi);
+		p->token_count += p->generated_token;
 	}
 	
 	return state;
@@ -2614,3 +2639,34 @@ uint32_t bdbm_page_badblock_scan (bdbm_drv_info_t* bdi)
 	return 0;
 
 }
+
+uint32_t bdbm_page_ftl_get_token (bdbm_drv_info_t* bdi)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	uint32_t token = 1024;
+
+	if (p->token_mode)
+	{
+		token = p->token_count;
+	}
+
+	return token;
+}
+
+void bdbm_page_ftl_consume_token (bdbm_drv_info_t* bdi, uint32_t used_token)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+
+	if (p->token_mode)
+	{
+		if (p->token_count > used_token)
+		{
+			p->token_count -= used_token; 
+		}
+		else
+		{
+			p->token_count = 0;
+		}			
+	}
+}
+

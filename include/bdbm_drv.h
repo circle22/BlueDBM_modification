@@ -333,6 +333,9 @@ typedef struct {
 	uint32_t (*do_gc) (bdbm_drv_info_t* bdi, int64_t lpa);
 	uint8_t (*is_gc_needed) (bdbm_drv_info_t* bdi, int64_t lpa);
 
+	uint32_t (*get_token) (bdbm_drv_info_t* bdi);
+	void (*consume_token) (bdbm_drv_info_t* bdi, uint32_t used_token);
+
 	/* interfaces for intialization */
 	uint32_t (*scan_badblocks) (bdbm_drv_info_t* bdi);
 	uint32_t (*load) (bdbm_drv_info_t* bdi, const char* fn);
