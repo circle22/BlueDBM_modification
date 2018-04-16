@@ -1466,6 +1466,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 	p->gc_mode = 0;	// default correction mode
 
+	p->generated_token = 0;
 	for (unit = 0; unit < p->nr_punits; unit++)
 	{
 		src_blk = p->gc_src_bab[unit]; 
@@ -1499,11 +1500,12 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 //					bdbm_msg(  "unit:%lld, plane:%lld, valid:%lld, blk: %lld, info:%lld", unit, plane, (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages), src_blk[plane].block_no, src_blk[plane].info);
 
+				p->generated_token += src_blk[plane].nr_invalid_subpages;
 			}
 		}
 	}
-
-	p->generated_token = (np->nr_subpages_per_block - p->src_valid_page_count) / np->nr_pages_per_block;
+	
+	p->generated_token /= np->nr_pages_per_block;
 	
 	p->dst_index = src_blk[0].copy_count + 1;
 	if (p->dst_index == MAX_COPY_BACK)
@@ -1522,7 +1524,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai), p->generated_token); 
+	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
 	//bdbm_msg("GC %lld,V %lld,U %lld,M %d", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode); 
 }
 
@@ -2322,10 +2324,12 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 	
 	if (state == 0)
 	{
+		//bdbm_msg(" __Read_State");	
 		state = bdbm_page_ftl_gc_read_state_adv(bdi);
 	}
 	else
-	{		
+	{
+		//bdbm_msg(" __Write_State : %lld, %lld", p->token_count, p->token_mode);	
 		state = bdbm_page_ftl_gc_write_state_adv(bdi);
 		p->token_count += p->generated_token;
 	}

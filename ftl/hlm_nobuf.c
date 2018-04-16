@@ -130,7 +130,7 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 	p->queuing_lr_count = 0;
 
 	p->flush_threshold = bdi->parm_dev.nr_channels * bdi->parm_dev.nr_chips_per_channel;
-	p->flush_lpn_count = p->flush_threshold * bdi->parm_dev.nr_subpages_per_page;
+	p->flush_lpn_count = p->flush_threshold * bdi->parm_dev.nr_planes * bdi->parm_dev.nr_subpages_per_page;
 	p->queuing_threshold = BUFFERING_LLM_COUNT; // ch x bank x 4	
 	
 	// utilization
@@ -219,15 +219,23 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 
 //	bdbm_msg("flush_buffer start: %lld, %lld, %lld - %lld", p->cur_lr_idx, p->flush_lr_idx, p->queuing_lr_count, p->utilization);
 
+//	bdbm_msg(" _Flush_State");	
+
 	for (i = 0; i < p->flush_threshold; i++)
 	{
 		llm_req = p->buffered_lr[llm_idx + i];
 		llm_req->req_type = REQTYPE_WRITE;
-
-		if (ftl->get_free_ppa (bdi, llm_req->logaddr.lpa[0], &llm_req->phyaddr) != 0)
+		
+		int count = 0;
+		while (ftl->get_free_ppa (bdi, llm_req->logaddr.lpa[0], &llm_req->phyaddr) != 0)
 		{
-			bdbm_error ("`ftl->get_free_ppa' failed");
-			bdbm_bug_on (1);
+			if (count == 0)
+			{
+				bdbm_msg("something wrong ?? : %lld", ftl->get_token(bdi));
+				count++;
+			}
+
+			ftl->do_gc(bdi, 100);
 		}
 		
 		if (ftl->map_lpa_to_ppa (bdi, &(llm_req->logaddr), &(llm_req->phyaddr)) != 0) 
@@ -613,7 +621,7 @@ uint32_t hlm_nobuf_make_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		/* do we need to do garbage collection? */
 		while ((ret = __hlm_nobuf_make_rw_req (bdi, hr)) == 2)
 		{
-			__hlm_nobuf_check_ondemand_gc (bdi, hr);
+			__hlm_nobuf_check_background_gc(bdi); 
 		}
 	} 
 
@@ -670,6 +678,16 @@ uint32_t hlm_nobuf_get_utilization(bdbm_drv_info_t* bdi)
 
 	return p->utilization;
 }
+
+void hlm_nobuf_update_utilization(bdbm_drv_info_t* bdi)
+{
+	bdbm_hlm_nobuf_private_t* p = (bdbm_hlm_nobuf_private_t*)(_hlm_nobuf_inf.ptr_private);
+
+	p->utilization = (p->queuing_lr_count * 100) / p->queuing_threshold;
+	p->cumulative_check_count = 1024;
+	p->cumulative_pending_count = (p->cumulative_check_count * p->queuing_threshold)*p->utilization/100;
+}
+
 
 uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
 {

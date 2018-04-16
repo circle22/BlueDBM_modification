@@ -94,6 +94,11 @@ int __hlm_buf_thread (void* arg)
 				}
 			}
 
+			if ( (idle_count % 5000) == 0) // 1ms sec..
+			{
+				hlm_nobuf_update_utilization(bdi);
+			}
+
 			if (ftl->is_gc_needed (bdi, 0)) 
 			{
 				uint32_t ret; 
@@ -119,8 +124,6 @@ int __hlm_buf_thread (void* arg)
 		busy_count = 0;
 		while (!bdbm_queue_is_empty (p->q, 0)) {
 			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, 0)) != NULL) {
-//				bdbm_msg("call make_req");
-
 				if (hlm_nobuf_make_req (bdi, r)) {
 					/* if it failed, we directly call 'ptr_host_inf->end_req' */
 					bdi->ptr_host_inf->end_req (bdi, r);
