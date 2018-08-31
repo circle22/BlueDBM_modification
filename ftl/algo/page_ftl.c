@@ -87,6 +87,7 @@ typedef struct {
 typedef struct {
 	bdbm_abm_info_t* bai;
 	bdbm_page_mapping_entry_t* ptr_mapping_table;
+	char* panMoveCount;
 	bdbm_spinlock_t ftl_lock;
 	uint64_t nr_punits;
 	uint64_t nr_punits_pages;
@@ -326,6 +327,22 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		return 1;
 	}
 
+	if ((p->panMoveCount = (char*)(bdbm_zmalloc(np->nr_subpages_per_ssd))) != NULL)
+	{
+		int32_t idx;
+		for (idx = 0; idx < np->nr_subpages_per_ssd; idx++)
+		{
+			p->panMoveCount[idx] = -1;
+		}
+	}
+	else
+	{
+		bdbm_error ("alloc failed");
+		bdbm_page_ftl_destroy (bdi);
+		return 1;
+	}
+	
+
 	/* allocate active blocks */
 	if ((p->ac_bab = __bdbm_page_ftl_create_active_blocks (np, p->bai)) == NULL) {
 		bdbm_error ("__bdbm_page_ftl_create_active_blocks failed");
@@ -453,6 +470,24 @@ void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi)
 
 	if (!p)
 		return;
+
+	uint32_t anHistogram[257] = {0,};
+	uint32_t idx;
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	for (idx = 0; idx < np->nr_subpages_per_ssd; idx++)
+	{
+		int32_t nMoveCount = p->panMoveCount[idx];
+		if (nMoveCount >= 0)
+		{
+			anHistogram[nMoveCount]++;
+		}
+	}
+	
+	for (idx = 0; idx < 257; idx++)
+	{
+		bdbm_msg("move count : %lld, %lld", idx, anHistogram[idx]);
+	}
+
 	if (p->gc_hlm_w.llm_reqs) {
 		hlm_reqs_pool_release_llm_reqs (p->gc_hlm_w.llm_reqs, p->nr_punits_pages, RP_MEM_PHY);
 		bdbm_sema_free (&p->gc_hlm_w.done);
@@ -469,6 +504,8 @@ void bdbm_page_ftl_destroy (bdbm_drv_info_t* bdi)
 		__bdbm_page_ftl_destroy_active_blocks (p->ac_bab);
 	if (p->ptr_mapping_table)
 		__bdbm_page_ftl_destroy_mapping_table (p->ptr_mapping_table);
+	if (p->panMoveCount)
+		bdbm_free (p->panMoveCount);
 	if (p->bai)
 		bdbm_abm_destroy (p->bai);
 	bdbm_free (p);
@@ -483,7 +520,7 @@ void bdbm_page_ftl_print_llm(bdbm_llm_req_t* llm_reqs, uint64_t size)
 	{
 		if (llm_reqs[index].req_type != 0)
 		{
-			bdbm_msg("index: %lld, reqType:%llx, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.chip_no, p->gc_count);
+			bdbm_msg("index: %lld, reqType:%x, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.chip_no, p->gc_count);
 		}
 	}
 }
@@ -810,7 +847,8 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 	bdbm_drv_info_t* bdi, 
 	bdbm_logaddr_t* logaddr,
-	bdbm_phyaddr_t* phyaddr)
+	bdbm_phyaddr_t* phyaddr,
+	uint32_t info)
 {
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
@@ -844,6 +882,16 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 			{
 				bdbm_error ("LPA is beyond logical space (%llX)", logaddr->lpa[index]);
 				return 1;
+			}
+
+			if (info == 0)
+			{	// host write
+				p->panMoveCount[logaddr->lpa[index]] = 0;
+			}
+			else
+			{
+				// GC write
+				p->panMoveCount[logaddr->lpa[index]]++;
 			}
 
 			/* get the mapping entry for lpa */
@@ -1414,7 +1462,7 @@ void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
 
 			if (src_blk->nr_invalid_subpages != np->nr_subpages_per_block)
 			{
-				bdbm_msg("%lld, %lld",unit,src_blk->nr_invalid_subpages);  
+				bdbm_msg("%lld, %d",unit,src_blk->nr_invalid_subpages);  
 				bdbm_bug_on(1);
 			}
 				
@@ -1458,11 +1506,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for readi
-	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
-
 	uint64_t ch, way, unit;
-	bdbm_abm_block_t* src_blk;
+	bdbm_abm_block_t* src_blk = NULL;
 
 	p->gc_mode = 0;	// default correction mode
 
@@ -1524,7 +1569,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
-	bdbm_msg("GC %lld,V %lld,U %lld,M %d, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
+	bdbm_msg("GC %lld,V %lld,U %lld,M %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
 	//bdbm_msg("GC %lld,V %lld,U %lld,M %d", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode); 
 }
 
@@ -1581,8 +1626,8 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	uint64_t bypassed_page = 0; 
 	uint64_t page_offs = 0;
 
-	uint64_t src_page;
-	uint64_t src_page_offs;
+	uint64_t src_page = 0;
+	uint64_t src_page_offs = 0;
 	uint8_t* src_valid_bitmap;
 
 	src_blk = p->gc_src_bab[unit];
@@ -1607,8 +1652,8 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	p->src_plane_idx[plane][unit] = 0xFF;
 	
 	req = &hlm_gc->llm_reqs[unit + plane*p->nr_punits]; // one request per plane	
-	hlm_reqs_pool_reset_fmain (&req->fmain);
-	hlm_reqs_pool_reset_logaddr (&req ->logaddr);
+	hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
+	hlm_reqs_pool_reset_logaddr (&req ->logaddr, BDBM_MAX_PAGES);
 	
 	if (valid_subpage_count == 0)
 	{
@@ -1894,8 +1939,8 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t unit,
 			uint64_t valid_count = 0;
 
 			req = &hlm_gc->llm_reqs[req_idx]; // one request per plane
-			hlm_reqs_pool_reset_fmain (&req->fmain);
-			hlm_reqs_pool_reset_logaddr (&req ->logaddr);
+			hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
+			hlm_reqs_pool_reset_logaddr (&req ->logaddr, BDBM_MAX_PAGES);
 	
 			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++)
 			{
@@ -2094,7 +2139,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 				bdbm_bug_on (1);
 			}
 
-			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr) != 0) 
+			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr, 1) != 0) 
 			{
 				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
 				bdbm_bug_on (1);
@@ -2232,7 +2277,7 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 				bdbm_bug_on (1);
 			}
 
-			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr) != 0) 
+			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr, 1) != 0) 
 			{
 				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
 				bdbm_bug_on (1);

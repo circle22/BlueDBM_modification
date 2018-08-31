@@ -339,7 +339,7 @@ uint32_t __bdbm_block_ftl_is_allocated (
 
 	if (nr_alloc_blks != 0 &&
 		nr_alloc_blks != p->nr_blks_per_seg) {
-		bdbm_msg ("oops! # of allocated blocks per segment must be 0 or %d (%d)", 
+		bdbm_msg ("oops! # of allocated blocks per segment must be 0 or %d (%lld)", 
 			p->nr_blks_per_seg, nr_alloc_blks);
 		bdbm_bug_on (1);
 	}
@@ -463,7 +463,7 @@ uint32_t bdbm_block_ftl_get_free_ppa (
 			bdbm_msg("[%llu] [OVERWRITE] %llu %llu", 
 				segment_no,	p->nr_trim_pgs[segment_no], p->nr_valid_pgs[segment_no]);
 
-			bdbm_msg ("[%llu] [OVERWRITE] this should not occur (rw_pg_ofs:%d page_ofs:%llu)", 
+			bdbm_msg ("[%llu] [OVERWRITE] this should not occur (rw_pg_ofs:%lld page_ofs:%llu)", 
 				segment_no, e->rw_pg_ofs, page_ofs);
 
 			bdbm_msg ("[%llu] [# of trimmed pages = %llu, lpa = %llu",
@@ -894,8 +894,8 @@ uint32_t __bdbm_block_ftl_do_gc_block_merge (
 		if (e->pst[j] == BFTL_PG_VALID) {
 			bdbm_llm_req_t* r = &hlm_gc->llm_reqs[nr_valid_pgs++];
 
-			hlm_reqs_pool_reset_fmain (&r->fmain);
-			hlm_reqs_pool_reset_logaddr (&r->logaddr);
+			hlm_reqs_pool_reset_fmain (&r->fmain, BDBM_MAX_PAGES);
+			hlm_reqs_pool_reset_logaddr (&r->logaddr, BDBM_MAX_PAGES);
 
 			r->logaddr.lpa[0] = -1; /* the subpage contains new data */
 			r->fmain.kp_stt[0] = KP_STT_DATA;

@@ -122,8 +122,22 @@ int __hlm_buf_thread (void* arg)
 
 		/* if nothing is in Q, then go to the next punit */
 		busy_count = 0;
-		while (!bdbm_queue_is_empty (p->q, 0)) {
-			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, 0)) != NULL) {
+//		while (!bdbm_queue_is_empty (p->q, 0)) {
+		while (1) 
+		{
+			uint32_t qIdx = 1;
+			if (bdbm_queue_is_empty (p->q, 1))
+			{
+				if (bdbm_queue_is_empty (p->q, 0))
+				{
+					break;
+				}
+
+				qIdx = 0;
+			}
+
+//			bdbm_msg(" 3. hlm_nobuf_make_req");
+			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, qIdx)) != NULL) {
 				if (hlm_nobuf_make_req (bdi, r)) {
 					/* if it failed, we directly call 'ptr_host_inf->end_req' */
 					bdi->ptr_host_inf->end_req (bdi, r);
@@ -149,6 +163,8 @@ int __hlm_buf_thread (void* arg)
 
 			idle_count = 0;
 			idle_loop = 0;
+
+//			bdbm_msg(" 4. hlm_nobuf_make_req");
 		} 
 	
 	}
@@ -177,7 +193,7 @@ uint32_t hlm_buf_create (bdbm_drv_info_t* bdi)
 	}
 
 	/* create a single queue */
-	if ((p->q = bdbm_queue_create (1, INFINITE_QUEUE)) == NULL) {
+	if ((p->q = bdbm_queue_create (2, INFINITE_QUEUE)) == NULL) {
 		bdbm_error ("bdbm_queue_create failed");
 		return -1;
 	}
@@ -222,6 +238,7 @@ uint32_t hlm_buf_make_req (
 	bdbm_hlm_req_t* r)
 {
 	uint32_t ret;
+	uint32_t queue_idx = 0;
 	struct bdbm_hlm_buf_private* p = (struct bdbm_hlm_buf_private*)(_hlm_buf_inf.ptr_private);
 
 //	bdbm_msg("make req : %ld", bdbm_queue_get_nr_items (p->q));
@@ -237,7 +254,13 @@ uint32_t hlm_buf_make_req (
 	}
 	
 	/* put a request into Q */
-	if ((ret = bdbm_queue_enqueue (p->q, 0, (void*)r))) {
+	
+	if (r->req_type == REQTYPE_READ)
+	{
+		queue_idx = 1;
+	}
+
+	if ((ret = bdbm_queue_enqueue (p->q, queue_idx, (void*)r))) {
 		bdbm_msg ("bdbm_queue_enqueue failed");
 	}
 

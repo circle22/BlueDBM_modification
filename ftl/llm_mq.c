@@ -122,7 +122,7 @@ int __llm_mq_thread (void* arg)
 				bdbm_sema_unlock (&p->punit_locks[loop]);
 				continue;
 			}
-
+//bdbm_msg("  5. llm make req");
 			r->ptr_qitem = qitem;
 
 			pmu_update_q (bdi, r);
@@ -143,6 +143,7 @@ int __llm_mq_thread (void* arg)
 
 			cnt++;
 			empty_loop = 0;
+//bdbm_msg("  6. llm make req");
 		}
 	}
 
@@ -271,18 +272,26 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 	} else if (bdbm_is_rmw (r->req_type) && bdbm_is_read (r->req_type)) {
 		bdbm_bug_on (1);
 	} else {
-		int i = 0;
+		if ((r->req_type & REQTYPE_DONE) != 0)
+		{
+			bdi->ptr_hlm_inf->end_req (bdi, r);
 
+			return 0;
+		}
+
+		int i = 0;
+/*
 		for (i = 0; i < BDBM_MAX_PAGES; i ++){
 			if(r->fmain.kp_stt[i] == KP_STT_DATA) break;
 		}
 		
 		if (i == BDBM_MAX_PAGES)
 		{
+			bdbm_msg("dummy_org");
 			bdi->ptr_hlm_inf->end_req (bdi, r);
 			return 0;
 		}
-
+*/
 		if ((ret = bdbm_prior_queue_enqueue (p->q, r->phyaddr.punit_id, r->logaddr.lpa[i], (void*)r))) {
 			bdbm_msg ("bdbm_prior_queue_enqueue failed");
 		}
@@ -352,6 +361,6 @@ uint32_t llm_mq_get_queuing_count(bdbm_drv_info_t* bdi)
 {
 	struct bdbm_llm_mq_private* p = (struct bdbm_llm_mq_private*)BDBM_LLM_PRIV(bdi);
 
-	return bdbm_prior_queue_get_nr_items (p->q);	
+	return bdbm_prior_queue_get_nr_items (p->q)*2;	
 }
 

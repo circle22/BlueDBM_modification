@@ -45,8 +45,8 @@ THE SOFTWARE.
 #define DEFAULT_POOL_INC_SIZE	DEFAULT_POOL_SIZE / 5
 
 
-uint64_t g_anReqCount[2][257] = {0, };
-uint64_t g_anTotal[2] = {0};
+uint64_t g_anReqCount[2][257];
+uint64_t g_anTotal[2];
 
 #define MAX_REQUEST_ARRAY		1024
 uint16_t* gp_write_request;
@@ -72,7 +72,7 @@ void __hlm_req_pool_print_workload(void)
 	{
 		uint16_t* pCount = gp_write_request + (index)*64;
 
-		bdbm_msg("%d: %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",index,
+		bdbm_msg("%lld: %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",index,
 		pCount[0],pCount[1],pCount[2],pCount[3],pCount[4],pCount[5],pCount[6],pCount[7],
 		pCount[8],pCount[9],pCount[10],pCount[11],pCount[12],pCount[13],pCount[14],pCount[15],
 		pCount[16],pCount[17],pCount[18],pCount[19],pCount[20],pCount[21],pCount[22],pCount[23],
@@ -94,7 +94,7 @@ void __hlm_req_pool_print_workload(void)
 	}
 
 	bdbm_msg("total write %lld", g_nTotal_write);
-	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\ 
+	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\
 		g_anCumulated_write[0],g_anCumulated_write[1],g_anCumulated_write[2],g_anCumulated_write[3],g_anCumulated_write[4],g_anCumulated_write[5],g_anCumulated_write[6],g_anCumulated_write[7],
 		g_anCumulated_write[8],g_anCumulated_write[9],g_anCumulated_write[10],g_anCumulated_write[11],g_anCumulated_write[12],g_anCumulated_write[13],g_anCumulated_write[14],g_anCumulated_write[15],
 		g_anCumulated_write[16],g_anCumulated_write[17],g_anCumulated_write[18],g_anCumulated_write[19],g_anCumulated_write[20],g_anCumulated_write[21],g_anCumulated_write[22],g_anCumulated_write[23],
@@ -104,7 +104,7 @@ void __hlm_req_pool_print_workload(void)
 		g_anCumulated_write[48],g_anCumulated_write[49],g_anCumulated_write[50],g_anCumulated_write[51],g_anCumulated_write[52],g_anCumulated_write[53],g_anCumulated_write[54],g_anCumulated_write[55],
 		g_anCumulated_write[56],g_anCumulated_write[57],g_anCumulated_write[58], g_anCumulated_write[59],g_anCumulated_write[60],g_anCumulated_write[61],g_anCumulated_write[62],g_anCumulated_write[63]);
 
-	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\ 
+	bdbm_msg("%lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld, %lld",\
 		g_anCumulated_write[64], g_anCumulated_write[65], g_anCumulated_write[66],g_anCumulated_write[67], g_anCumulated_write[68],g_anCumulated_write[69],g_anCumulated_write[70], g_anCumulated_write[71],
 		g_anCumulated_write[72], g_anCumulated_write[73], g_anCumulated_write[74],g_anCumulated_write[75],g_anCumulated_write[76],g_anCumulated_write[77],g_anCumulated_write[78],g_anCumulated_write[79],
 		g_anCumulated_write[80],g_anCumulated_write[81],g_anCumulated_write[82],g_anCumulated_write[83],g_anCumulated_write[84],g_anCumulated_write[85],g_anCumulated_write[86],g_anCumulated_write[87],
@@ -152,7 +152,7 @@ void __hlm_reqs_pool_print_count(void)
 {
 	bdbm_msg("Read Total :%lld, WriteTotal: %lld", g_anTotal[0], g_anTotal[1]);
 
-	bdbm_msg("Read:\ %lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
+	bdbm_msg("Read:%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld",
@@ -166,7 +166,7 @@ void __hlm_reqs_pool_print_count(void)
 	g_anReqCount[0][48],g_anReqCount[0][49],g_anReqCount[0][50],g_anReqCount[0][51],g_anReqCount[0][52],g_anReqCount[0][53],g_anReqCount[0][54],g_anReqCount[0][55],
 	g_anReqCount[0][56],g_anReqCount[0][57],g_anReqCount[0][58],g_anReqCount[0][59],g_anReqCount[0][60],g_anReqCount[0][61],g_anReqCount[0][62],g_anReqCount[0][63]);
 
-	bdbm_msg("Write:\ 
+	bdbm_msg("Write:\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
 	%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,%lld,\
@@ -303,8 +303,8 @@ void bdbm_hlm_reqs_pool_destroy (
 	bdbm_spin_lock_destory (&pool->lock);
 	bdbm_free (pool);
 
-	__hlm_reqs_pool_print_count();
-	__hlm_req_pool_print_workload();
+//	__hlm_reqs_pool_print_count();
+//	__hlm_req_pool_print_workload();
 }
 
 bdbm_hlm_req_t* bdbm_hlm_reqs_pool_get_item (
@@ -448,20 +448,20 @@ void hlm_reqs_pool_release_llm_reqs (
 	}
 }
 
-void hlm_reqs_pool_reset_fmain (bdbm_flash_page_main_t* fmain)
+void hlm_reqs_pool_reset_fmain (bdbm_flash_page_main_t* fmain, uint32_t nCount)
 {
 	int i = 0;
-	while (i < BDBM_MAX_PAGES) {
+	while (i < nCount) {
 		fmain->kp_stt[i] = KP_STT_HOLE;
 		fmain->kp_ptr[i] = fmain->kp_pad[i];
 		i++;
 	}
 }
 
-void hlm_reqs_pool_reset_logaddr (bdbm_logaddr_t* logaddr)
+void hlm_reqs_pool_reset_logaddr (bdbm_logaddr_t* logaddr, uint32_t nCount)
 {
 	int i = 0;
-	while (i < BDBM_MAX_PAGES) {
+	while (i < nCount) {
 		logaddr->lpa[i] = -1;
 		i++;
 	}
@@ -480,6 +480,9 @@ static int __hlm_reqs_pool_create_write_req (
  
 	bdbm_flash_page_main_t* ptr_fm = NULL;
 	bdbm_llm_req_t* ptr_lr = NULL;
+    
+	int nr_valid = 0;
+    int add = 0;
 
 	/* expand boundary sectors */
 	sec_start = BDBM_ALIGN_DOWN (br->bi_offset, NR_KSECTORS_IN(pool->map_unit));
@@ -502,8 +505,8 @@ static int __hlm_reqs_pool_create_write_req (
 		int fm_ofs = 0;
 
 		ptr_fm = &ptr_lr->fmain;
-		hlm_reqs_pool_reset_fmain (ptr_fm);
-		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr);
+		hlm_reqs_pool_reset_fmain (ptr_fm, BDBM_MAX_PAGES);
+		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr, BDBM_MAX_PAGES);
 
 		/* build mapping-units */
 		for (j = 0, hole = 0; j < max_map_cnt; j++) {
@@ -570,9 +573,6 @@ static int __hlm_reqs_pool_create_write_req (
     }
 */
     ptr_lr--;
-    int nr_valid = 0;
-    int add = 0;
-
     for (j = 0; j < pool->io_unit / pool->map_unit; j++) {
         if(ptr_lr->fmain.kp_stt[j] == KP_STT_DATA) nr_valid++;
     }
@@ -582,8 +582,8 @@ static int __hlm_reqs_pool_create_write_req (
         ptr_lr->logaddr.ofs = 0;
         for (k = 1; k < (pool->io_unit / pool->map_unit) - 1; k++) {
             if (ptr_lr->fmain.kp_stt[k] == KP_STT_DATA) {
-                hlm_reqs_pool_reset_fmain (&next->fmain);
-                hlm_reqs_pool_reset_logaddr (&next->logaddr);
+                hlm_reqs_pool_reset_fmain (&next->fmain, BDBM_MAX_PAGES);
+                hlm_reqs_pool_reset_logaddr (&next->logaddr, BDBM_MAX_PAGES);
                 next->req_type = REQTYPE_WRITE;
                 next->fmain.kp_stt[k] = KP_STT_DATA;
                 next->fmain.kp_ptr[k] = ptr_lr->fmain.kp_ptr[k];
@@ -642,29 +642,29 @@ static int __hlm_reqs_pool_create_read_req (
 	pg_end = BDBM_ALIGN_UP (br->bi_offset + br->bi_size, NR_KSECTORS_IN(KPAGE_SIZE)) / NR_KSECTORS_IN(KPAGE_SIZE);
 	bdbm_bug_on (pg_start >= pg_end);
 
-	__hlm_req_pool_update_count(0, pg_end - pg_start);
+//	__hlm_req_pool_update_count(0, pg_end - pg_start);
 
 	/* build llm_reqs */
 	nr_llm_reqs = pg_end - pg_start;
 
 	ptr_lr = &hr->llm_reqs[0];
 	for (i = 0; i < nr_llm_reqs; i++) {
-		offset = pg_start % NR_KPAGES_IN(pool->map_unit);
+//		offset = pg_start % NR_KPAGES_IN(pool->map_unit);
 
-		if (pool->in_place_rmw == 0) 
-			bdbm_bug_on (offset != 0);
+//		if (pool->in_place_rmw == 0) 
+//			bdbm_bug_on (offset != 0);
 
-		hlm_reqs_pool_reset_fmain (&ptr_lr->fmain);
+		hlm_reqs_pool_reset_fmain (&ptr_lr->fmain, 1);
 		ptr_lr->fmain.kp_stt[offset] = KP_STT_DATA;
 		ptr_lr->fmain.kp_ptr[offset] = br->bi_bvec_ptr[bvec_cnt++];
 
-		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr);
+		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr, 1);
 		ptr_lr->req_type = br->bi_rw;
 		ptr_lr->logaddr.lpa[0] = pg_start / NR_KPAGES_IN(pool->map_unit);
-		if (pool->in_place_rmw == 1) 
-			ptr_lr->logaddr.ofs = 0;		/* offset in llm is already decided */
-		else
-			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
+//		if (pool->in_place_rmw == 1) 
+//			ptr_lr->logaddr.ofs = 0;		/* offset in llm is already decided */
+//		else
+//			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
 		ptr_lr->ptr_hlm_req = (void*)hr;
 
 		/* go to the next */
@@ -694,14 +694,15 @@ int bdbm_hlm_reqs_pool_build_req (
 	int ret = 1;
 
 	/* create a hlm_req using a bio */
-	if (bdbm_is_trim(br->bi_rw)) {
-		ret = __hlm_reqs_pool_create_trim_req (pool, hr, br);
+	if (bdbm_is_read(br->bi_rw)) {
+		ret = __hlm_reqs_pool_create_read_req (pool, hr, br);
 	} else if (bdbm_is_write(br->bi_rw)) {
 		ret = __hlm_reqs_pool_create_write_req (pool, hr, br);
-	} else if (bdbm_is_read(br->bi_rw)) {
-		ret = __hlm_reqs_pool_create_read_req (pool, hr, br);
 	}
-
+	else if (bdbm_is_trim(br->bi_rw)) {
+		ret = __hlm_reqs_pool_create_trim_req (pool, hr, br);
+	}
+ 
 	/* are there any errors? */
 	if (ret != 0) {
 		bdbm_error ("oops! invalid request type: (%llx)", br->bi_rw);
@@ -735,7 +736,7 @@ void hlm_reqs_pool_copy(
 
 	for (unit = 0; unit < nr_punits; unit++) 
 	{
-		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[dst_offset + unit].fmain);
+		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[dst_offset + unit].fmain, BDBM_MAX_PAGES);
 
 		src_req = &src->llm_reqs[unit];
 		dst_req = &dst->llm_reqs[dst_offset + unit];
@@ -794,7 +795,7 @@ uint64_t hlm_reqs_pool_compaction(
 	{
 		dst_req = &dst->llm_reqs[dst_offset + unit];
 		dst_req->dma = 0;
-		hlm_reqs_pool_reset_fmain (&dst_req->fmain);
+		hlm_reqs_pool_reset_fmain (&dst_req->fmain, BDBM_MAX_PAGES);
 
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
@@ -883,7 +884,7 @@ void hlm_reqs_pool_write_compaction (
 
 	dst->nr_llm_reqs = 0;
 	for (i = 0; i < nr_punits * np->nr_pages_per_block; i++) {
-		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[i].fmain);
+		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[i].fmain, BDBM_MAX_PAGES);
 	}
 
 	dst_r = &dst->llm_reqs[0];
