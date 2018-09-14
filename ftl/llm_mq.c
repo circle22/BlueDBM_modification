@@ -58,6 +58,7 @@ bdbm_llm_inf_t _llm_mq_inf = {
 	.create = llm_mq_create,
 	.destroy = llm_mq_destroy,
 	.make_req = llm_mq_make_req,
+	.make_reqs = llm_mq_make_reqs,
 	.flush = llm_mq_flush,
 	.end_req = llm_mq_end_req,
 	.get_queuing_count = llm_mq_get_queuing_count,
@@ -301,6 +302,129 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 	bdbm_thread_wakeup (p->llm_thread);
 
 	return ret;
+}
+
+uint32_t llm_mq_is_the_same_phyaddr (bdbm_phyaddr_t* x, bdbm_phyaddr_t* y)
+{
+	return (x->punit_id == y->punit_id &&
+			x->channel_no == y->channel_no &&
+			x->chip_no == y->chip_no &&
+			x->block_no == y->block_no &&
+			x->page_no == y->page_no ) ? 1: 0;
+}
+
+uint32_t llm_mq_merge_read_reqs (bdbm_llm_req_t* dst_lr, bdbm_llm_req_t* src_lr)
+{
+	uint64_t i = 0;
+
+	for (i = 0; i < BDBM_MAX_PAGES; i++) 
+	{
+		if (src_lr->fmain.kp_stt[i] == KP_STT_DATA) 
+		{
+			if (dst_lr->fmain.kp_stt[i] == KP_STT_DATA) 
+			{
+				/* two llm_reqs target the same physical address and offset */
+				return 1;
+			} 
+			else 
+			{
+				dst_lr->fmain.kp_stt[i] = KP_STT_DATA;
+				dst_lr->fmain.kp_ptr[i] = src_lr->fmain.kp_ptr[i];
+				dst_lr->dma += src_lr->dma;
+				//src_lr->fmain.kp_stt[i] = KP_STT_HOLE;
+			}
+			break;
+		}
+	}
+
+	return 0;
+}
+
+uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
+{
+	uint64_t idx = 0, j = 0, k = 0;
+	bdbm_llm_req_t* cur_lr = NULL, *next_lr = NULL, *dst_lr = NULL;
+	uint64_t merged_count = 0;
+
+	/* support only read operations */
+	if (hlm_req->nr_llm_reqs > 1 && !bdbm_is_rmw (hlm_req->req_type) && bdbm_is_read (hlm_req->req_type)) 
+	{
+		uint64_t dst_idx = 0;
+
+		bdbm_hlm_for_each_llm_req (cur_lr, hlm_req, idx) 
+		{		
+			if ((cur_lr->req_type & REQTYPE_DONE))
+				continue;
+
+			//nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
+			if ((idx % bdi->parm_dev.nr_subpages_per_page) == 0)
+			{
+				dst_lr = &hlm_req->llm_req[dst_idx];	
+				if (dst_idx != idx)
+				{
+					// hlm_req->llm_req[dst_lr_idx] = hlm_req->llm_req[idx];
+					dst_lr->req_type = cur_lr->req_type;
+					dst_lr->dma = cur_lr->dma;
+					dst_lr->logaddr.ofs = cur_lr->logaddr.ofs;
+
+					// bound - should be zero.
+					dst_lr->logaddr.lpa[0] = cur_lr->logaddr.lpa[0];
+					dst_lr->fmain.kp_stt[0] = cur_lr->fmain.kp_stt[0];
+					dst_lr->fmain.kp_ptr[0] = cur_lr->fmain.kp_ptr[0];
+					
+					dst_lr->phyaddr.punit_id = cur_lr->phyaddr.punit_id; 
+					dst_lr->phyaddr.channel_no = cur_lr->phyaddr.channel_no;
+					dst_lr->phyaddr.chip_no = cur_lr->phyaddr.chip_no;
+					dst_lr->phyaddr.block_no = cur_lr->phyaddr.block_no;
+					dst_lr->phyaddr.page_no = cur_lr->phyaddr.page_no;
+				}
+
+				dst_idx++;
+				
+				continue;				
+			}
+
+			// check dst with cur_lr
+			if (llm_mq_is_the_same_phyaddr(bdbm_llm_get_phyaddr(dst_lr), bdbm_llm_get_phyaddr(cur_lr))) 
+			{
+				/* if find one, merge it with the current llm_req */
+				if (llm_mq_merge_read_reqs (dst_lr, cur_lr)) 
+				{
+					/* two llm_reqs for the same hlm_req has 
+					 * the same physical adress and offset: error */
+					//bdbm_error ("oops! invalid mapping!");
+					//bdbm_bug_on (1);
+					
+					continue;
+				}
+				
+				merged_count++;
+			}
+			else
+			{
+				// error.
+			}
+		}
+		
+		hlm_req->nr_llm_reqs -= merged_count;
+	}
+
+	bdbm_hlm_for_each_llm_req (cur_lr, hlm_req, idx) {
+		if (!(cur_lr->req_type & REQTYPE_DONE)) {
+			if (bdbm_is_flush(cur_lr->req_type))
+			{
+				// this llm request is used for buffering
+				continue;
+			}
+
+			if (bdi->ptr_llm_inf->make_req (bdi, cur_lr) != 0) {
+				bdbm_error ("oops! make_req () failed");
+				bdbm_bug_on (1);
+			}
+		}
+	}
+	
+	return 0;
 }
 
 void llm_mq_flush (bdbm_drv_info_t* bdi)

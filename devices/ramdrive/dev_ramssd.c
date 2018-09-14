@@ -509,31 +509,6 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 	nr_channels = dev_ramssd_get_channles_per_ssd(ri);
 	nr_ways = dev_ramssd_get_chips_per_channel(ri);
 
-#if 0
-	for (loop = 0; loop < nr_parallel_units; loop++) {
-		bdbm_spin_lock (&ri->ramssd_lock);
-		if (ri->ptr_punits[loop].ptr_req != NULL) {
-			dev_ramssd_punit_t* punit;
-			int64_t elapsed_time_in_us;
-
-			punit = &ri->ptr_punits[loop];
-			elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&punit->sw);
-
-			if (elapsed_time_in_us >= punit->target_elapsed_time_us) {
-				void* ptr_req = punit->ptr_req;
-				punit->ptr_req = NULL;
-				bdbm_spin_unlock (&ri->ramssd_lock);
-
-				/* call the interrupt handler */
-				ri->intr_handler (ptr_req);
-			} else {
-				bdbm_spin_unlock (&ri->ramssd_lock);
-			}
-		} else {
-			bdbm_spin_unlock (&ri->ramssd_lock);
-		}
-	}
-#else
 	for (channel = 0; channel < nr_channels; channel++)
 	{
 		check = 0;
@@ -542,21 +517,77 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 			loop = channel*nr_ways + way;
 
 			bdbm_spin_lock (&ri->ramssd_lock);
-			if (ri->ptr_punits[loop].ptr_req != NULL) {
+			if (ri->ptr_punits[loop].ptr_req != NULL) 
+			{
 				dev_ramssd_punit_t* punit;
 				int64_t elapsed_time_in_us;
 
 				punit = &ri->ptr_punits[loop];
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&punit->sw);
 
-				if (elapsed_time_in_us >= punit->target_elapsed_time_us) {
+				if (elapsed_time_in_us >= punit->target_elapsed_time_us) 
+				{
 					void* ptr_req = punit->ptr_req;
-					punit->ptr_req = NULL;
-					bdbm_spin_unlock (&ri->ramssd_lock);
 
-					/* call the interrupt handler */
-					ri->intr_handler (ptr_req);
-				} else {
+					if (punit->dma_reflected != 0)
+					{
+						// program, erase and after DMA for read request.
+						punit->ptr_req = NULL;
+						bdbm_spin_unlock (&ri->ramssd_lock);
+						
+						/* call the interrupt handler */
+						ri->intr_handler (ptr_req);
+					}
+					else
+					{
+						// read operation after tR done.
+						int64_t count = 0;
+						int64_t dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
+						bdbm_llm_req_t* req_ptr = (bdbm_llm_req_t*)(ri->ptr_punits[loop].ptr_req);
+						dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + req_ptr->phyaddr.channel_no;
+
+						if (req_ptr->dma != 0)
+						{					
+#ifdef DYNAMIC_DMA
+							// check the channel busy time
+							if (ri->is_busy[req_ptr->phyaddr.channel_no] == 0)
+							{
+								ri->is_busy[req_ptr->phyaddr.channel_no] = 1;
+								//atomic_inc(&ri->busy_channel);
+							}
+
+							for (int64_t ch = 0; ch < 8; ch++)
+							{
+								if (ri->is_busy[ch] != 0)
+								{
+									count++;
+								}
+							}
+#endif
+							dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
+						}
+							
+						elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
+						if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
+						{	// channel is idle.
+							// start time update.
+							bdbm_stopwatch_start (&(ptr_channels->sw));
+							ptr_channels->target_elapsed_time_us = dma_time_us;
+						}
+						else
+						{	// channel is busy - busy time will be accumulated.
+							ptr_channels->target_elapsed_time_us += dma_time_us;
+							dma_time_us = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
+						}
+
+						punit->target_elapsed_time_us = dma_time_us;
+						punit->dma_reflected = 1;
+						
+						bdbm_spin_unlock (&ri->ramssd_lock);
+					}
+				} 
+				else 
+				{
 					bdbm_spin_unlock (&ri->ramssd_lock);
 				}
 
@@ -572,7 +603,7 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 			}
 		}
 		
-		if ((check!=0) && (ri->is_busy[channel] !=0))
+		if ((check != 0) && (ri->is_busy[channel] != 0))
 		{
 			uint64_t elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ri->ptr_channels[channel].sw));
 			if (elapsed_time_in_us >= ri->ptr_channels[channel].target_elapsed_time_us)
@@ -786,7 +817,7 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 	if ((ret = __ramssd_send_cmd (ri, r)) == 0) {
 		int64_t target_elapsed_time_us = 0;
 		uint64_t punit_id = r->phyaddr.punit_id;
-		int64_t channel_busy_time = 0;
+		int64_t dma_time_us = 0;
 		int64_t elapsed_time_in_us = 0;
 
 		/* get the target elapsed time depending on the type of req */
@@ -803,10 +834,6 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			case REQTYPE_RMW_WRITE:
 			case REQTYPE_META_WRITE:
 
-#ifndef  DWHONG
-				target_elapsed_time_us = ri->np->page_prog_time_us;
-#else
-
 #ifdef DYNAMIC_DMA
 				// check the channel busy time
 				if (ri->is_busy[r->phyaddr.channel_no] == 0)
@@ -822,40 +849,25 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 						count++;
 					}
 				}
-
-				/*
-				count = atomic_read(&ri->busy_channel);
-				if (count > 8)
-				{		
-					bdbm_msg("counting issue happend... %lu\n", count);
-					count = 8;
-				}*/
 #endif
-				channel_busy_time = ri->np->prog_dma_time_us[count] * dma_count;
+				dma_time_us = ri->np->prog_dma_time_us[count] * dma_count;
 				
-	//			bdbm_msg("Issue Ch %llu, way %llu, page %llu , paralle : %llu time : %llu\n", r->phyaddr.channel_no, r->phyaddr.chip_no, r->phyaddr.page_no, atomic_read(&ri->busy_channel), channel_busy_time);
-
-				if ((r->req_type == REQTYPE_GC_WRITE) && (r->dma == 0))
-				{
-					channel_busy_time = 0;
-				}
-
 				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ptr_channels->sw));
 				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
 				{	// channel is idle.
 					// start time update.
 					bdbm_stopwatch_start (&(ptr_channels->sw));
-					ptr_channels->target_elapsed_time_us = channel_busy_time;
+					ptr_channels->target_elapsed_time_us = dma_time_us;
 				}
 				else
 				{	// channel is busy - busy time will be accumulated.
-					ptr_channels->target_elapsed_time_us += channel_busy_time;
-					channel_busy_time = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us); // update channel_busy time
+					ptr_channels->target_elapsed_time_us += dma_time_us;
+					dma_time_us = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us); // update channel_busy time
 				}
 
 				//channel busy time + NAND Operation.
-				target_elapsed_time_us = channel_busy_time;
+				target_elapsed_time_us = dma_time_us;
 
 				#define NR_PAGE_PER_WORDLINE  (2)
 				if (r->phyaddr.page_no % NR_PAGE_PER_WORDLINE)
@@ -866,81 +878,20 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				{	// MSB.
 					target_elapsed_time_us += ri->np->page_msb_prog_time_us;
 				}
-#endif	// DWHONG			
+
 				break;
 
 			case REQTYPE_GC_READ:
-				dma_count = r->dma;	
 			case REQTYPE_READ:
 			case REQTYPE_RMW_READ:
 			case REQTYPE_META_READ:
-
 				target_elapsed_time_us = ri->np->page_read_time_us;
-#ifdef	DWHONG
-				// check the channel busy time
-				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
-				channel_busy_time = ri->np->read_dma_time_us;
-
-				if (r->req_type == REQTYPE_GC_READ)
-				{
-					if (r->dma == 0)
-					{					
-						channel_busy_time = 0;
-					}
-					else
-					{
-#ifdef DYNAMIC_DMA
-						// check the channel busy time
-						if (ri->is_busy[r->phyaddr.channel_no] == 0)
-						{
-							ri->is_busy[r->phyaddr.channel_no] = 1;
-							//atomic_inc(&ri->busy_channel);
-						}
-
-						for (ch = 0; ch < 8; ch++)
-						{
-							if (ri->is_busy[ch] != 0)
-							{
-								count++;
-							}
-						}
-
-						/*						
-						count = atomic_read(&ri->busy_channel);
-						if ( count > 8)
-						{		
-							bdbm_msg("counting issue happend... %lu\n", count);
-							count = 8;
-						}*/
-#endif
-						channel_busy_time = ri->np->gc_read_dma_time_us[count] * dma_count;
-					}
-				}
-
-				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
-				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
-				{	// channel is idle.
-					// start time update.
-					bdbm_stopwatch_start (&(ptr_channels->sw));
-					ptr_channels->target_elapsed_time_us = channel_busy_time;
-				}
-				else
-				{	// channel is busy - busy time will be accumulated.
-					ptr_channels->target_elapsed_time_us += channel_busy_time;
-					channel_busy_time = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
-				}
-
-				//channel busy time + NAND Operation.
-				target_elapsed_time_us = channel_busy_time;
-#endif	// DWHONG
-
 				break;
+				
 			case REQTYPE_GC_ERASE:
 				target_elapsed_time_us = ri->np->block_erase_time_us;
-				
-				//bdbm_msg("  Erase: %lld, %lld, %lld", r->phyaddr.channel_no, r->phyaddr.chip_no, target_elapsed_time_us);
-
 				break;
+				
 			case REQTYPE_READ_DUMMY:
 				target_elapsed_time_us = 0;	/* dummy read */
 				break;
@@ -957,6 +908,8 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 		else {
 			target_elapsed_time_us = 0;
 		}
+
+		ri->ptr_punits[punit_id].dma_reflected = (bdbm_is_read (r->req_type)) ? 0 : 1;
 
 		/* register reqs */
 		bdbm_spin_lock (&ri->ramssd_lock);
@@ -975,12 +928,6 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 
 		/* register reqs for callback */
 		__ramssd_timing_register_schedule (ri);
-
-		if ( channel_busy_time > 20000)
-		{
-			bdbm_msg("Issue Channel Busy : %lld, unitID: %lld", channel_busy_time, punit_id);
-			bdbm_msg("Target_elapese.. : %lld, type:%lld, %lld", target_elapsed_time_us, r->req_type, elapsed_time_in_us );
-		}
 	}
 
 fail:

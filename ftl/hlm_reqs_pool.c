@@ -649,23 +649,25 @@ static int __hlm_reqs_pool_create_read_req (
 
 	ptr_lr = &hr->llm_reqs[0];
 	for (i = 0; i < nr_llm_reqs; i++) {
-//		offset = pg_start % NR_KPAGES_IN(pool->map_unit);
+		offset = pg_start % NR_KPAGES_IN(pool->map_unit);
 
 //		if (pool->in_place_rmw == 0) 
 //			bdbm_bug_on (offset != 0);
 
-		hlm_reqs_pool_reset_fmain (&ptr_lr->fmain, 1);
+		hlm_reqs_pool_reset_fmain (&ptr_lr->fmain, BDBM_MAX_PAGES);
 		ptr_lr->fmain.kp_stt[offset] = KP_STT_DATA;
 		ptr_lr->fmain.kp_ptr[offset] = br->bi_bvec_ptr[bvec_cnt++];
 
 		hlm_reqs_pool_reset_logaddr (&ptr_lr->logaddr, 1);
 		ptr_lr->req_type = br->bi_rw;
 		ptr_lr->logaddr.lpa[0] = pg_start / NR_KPAGES_IN(pool->map_unit);
-//		if (pool->in_place_rmw == 1) 
-//			ptr_lr->logaddr.ofs = 0;		/* offset in llm is already decided */
-//		else
-//			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
+		if (pool->in_place_rmw == 1) 
+			ptr_lr->logaddr.ofs = 0;		/* offset in llm is already decided */
+		else
+			ptr_lr->logaddr.ofs = offset;	/* it must be adjusted after getting physical locations */
 		ptr_lr->ptr_hlm_req = (void*)hr;
+
+		ptr_lr->dma = 1;
 
 		/* go to the next */
 		pg_start++;

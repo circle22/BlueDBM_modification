@@ -165,15 +165,15 @@ bdbm_device_params_t get_default_device_params (void)
 #else
 
 /*
-	p.gc_read_dma_time_us[0] = 27;
-	p.gc_read_dma_time_us[1] = 27;
-	p.gc_read_dma_time_us[2] = 27;
-	p.gc_read_dma_time_us[3] = 27;
-	p.gc_read_dma_time_us[4] = 29;
-	p.gc_read_dma_time_us[5] = 36;
-	p.gc_read_dma_time_us[6] = 43;
-	p.gc_read_dma_time_us[7] = 49;
-	p.gc_read_dma_time_us[8] = 57;
+	p.read_dma_time_us[0] = 27;
+	p.read_dma_time_us[1] = 27;
+	p.read_dma_time_us[2] = 27;
+	p.read_dma_time_us[3] = 27;
+	p.read_dma_time_us[4] = 29;
+	p.read_dma_time_us[5] = 36;
+	p.read_dma_time_us[6] = 43;
+	p.read_dma_time_us[7] = 49;
+	p.read_dma_time_us[8] = 57;
 
 	p.page_read_time_us = 50;	// tR 50us.
 
@@ -188,15 +188,15 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[7] = 49;
 	p.prog_dma_time_us[8] = 57;
 */
-	p.gc_read_dma_time_us[0] = 7;
-	p.gc_read_dma_time_us[1] = 7;
-	p.gc_read_dma_time_us[2] = 7;
-	p.gc_read_dma_time_us[3] = 7;
-	p.gc_read_dma_time_us[4] = 7;
-	p.gc_read_dma_time_us[5] = 9;
-	p.gc_read_dma_time_us[6] = 10;
-	p.gc_read_dma_time_us[7] = 12;
-	p.gc_read_dma_time_us[8] = 14;
+	p.read_dma_time_us[0] = 7;
+	p.read_dma_time_us[1] = 7;
+	p.read_dma_time_us[2] = 7;
+	p.read_dma_time_us[3] = 7;
+	p.read_dma_time_us[4] = 7;
+	p.read_dma_time_us[5] = 9;
+	p.read_dma_time_us[6] = 10;
+	p.read_dma_time_us[7] = 12;
+	p.read_dma_time_us[8] = 14;
 
 	p.page_read_time_us = 50;	// tR 50us.
 

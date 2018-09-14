@@ -458,16 +458,16 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		if (bdbm_is_normal (lr->req_type)) {
 			/* handling normal I/O operations */
 			if (bdbm_is_read (lr->req_type)) {
-//				if(__hlm_buffered_read(bdi, lr) == -1){
+				if(__hlm_buffered_read(bdi, lr) == -1){
 					if (ftl->get_ppa (bdi, lr->logaddr.lpa[0], &lr->phyaddr, &sp_ofs) != 0) {
 						/* Note that there could be dummy reads (e.g., when the
 						 * file-systems are initialized) */
 						lr->req_type = REQTYPE_READ_DUMMY;
 					} 
-//					else {
-//						hlm_reqs_pool_relocate_kp (lr, sp_ofs);
-//					}
-//				}
+					else {
+						hlm_reqs_pool_relocate_kp (lr, sp_ofs);
+					}
+				}
 			} 
 			else if (bdbm_is_write (lr->req_type)) 
 			{

@@ -48,6 +48,7 @@ THE SOFTWARE.
 
 typedef struct {
 	void* ptr_req;
+	int32_t dma_reflected;
 	int64_t target_elapsed_time_us;
 	bdbm_stopwatch_t sw;
 } dev_ramssd_punit_t;

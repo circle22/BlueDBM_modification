@@ -148,7 +148,7 @@ typedef struct {
 	uint64_t read_dma_time_us;
 //	uint64_t prog_dma_time_us;
 //	uint64_t gc_read_dma_time_us;	
-	uint64_t gc_read_dma_time_us[9];	
+	uint64_t read_dma_time_us[9];	
 	uint64_t prog_dma_time_us[9];
 #else
 	uint64_t page_prog_time_us;
