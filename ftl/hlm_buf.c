@@ -152,7 +152,7 @@ int __hlm_buf_thread (void* arg)
 			if (ftl->is_gc_needed (bdi, 0)) 
 			{
 				uint32_t utilization = hlm_nobuf_get_utilization(bdi); 
-				uint32_t ret = ftl->do_gc (bdi, utilization);
+				ftl->do_gc (bdi, utilization);
 			}
 
 			busy_count++;

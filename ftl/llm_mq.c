@@ -280,20 +280,7 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 			return 0;
 		}
 
-		int i = 0;
-/*
-		for (i = 0; i < BDBM_MAX_PAGES; i ++){
-			if(r->fmain.kp_stt[i] == KP_STT_DATA) break;
-		}
-		
-		if (i == BDBM_MAX_PAGES)
-		{
-			bdbm_msg("dummy_org");
-			bdi->ptr_hlm_inf->end_req (bdi, r);
-			return 0;
-		}
-*/
-		if ((ret = bdbm_prior_queue_enqueue (p->q, r->phyaddr.punit_id, r->logaddr.lpa[i], (void*)r))) {
+		if ((ret = bdbm_prior_queue_enqueue (p->q, r->phyaddr.punit_id, r->logaddr.lpa[0], (void*)r))) {
 			bdbm_msg ("bdbm_prior_queue_enqueue failed");
 		}
 	}
@@ -342,8 +329,8 @@ uint32_t llm_mq_merge_read_reqs (bdbm_llm_req_t* dst_lr, bdbm_llm_req_t* src_lr)
 
 uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 {
-	uint64_t idx = 0, j = 0, k = 0;
-	bdbm_llm_req_t* cur_lr = NULL, *next_lr = NULL, *dst_lr = NULL;
+	uint64_t idx = 0;
+	bdbm_llm_req_t* cur_lr = NULL, *dst_lr = NULL;
 	uint64_t merged_count = 0;
 
 	/* support only read operations */
@@ -359,7 +346,7 @@ uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 			//nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
 			if ((idx % bdi->parm_dev.nr_subpages_per_page) == 0)
 			{
-				dst_lr = &hlm_req->llm_req[dst_idx];	
+				dst_lr = &hlm_req->llm_reqs[dst_idx];	
 				if (dst_idx != idx)
 				{
 					// hlm_req->llm_req[dst_lr_idx] = hlm_req->llm_req[idx];

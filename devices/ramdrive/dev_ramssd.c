@@ -213,7 +213,6 @@ static uint8_t __ramssd_read_page (
 #ifndef DUMMY_SSD
 	uint32_t nr_kpages;
 #endif
-	uint32_t loop;
 
 	/* get the memory address for the destined page */
 	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
@@ -316,7 +315,6 @@ static uint8_t __ramssd_prog_page (
 #ifndef DUMMY_SSD
 	uint32_t nr_kpages;
 #endif
-	uint32_t loop;
 	/* get the memory address for the destined page */
 	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
 		bdbm_error ("invalid ram addr (%p)", ptr_ramssd_addr);
@@ -488,7 +486,7 @@ static uint32_t __ramssd_send_cmd (
 		break;
 
 	default:
-		bdbm_error ("invalid command :%lld ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.chip_no);
+		bdbm_error ("invalid command :%d ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.chip_no);
 		ret = 1;
 		break;
 	}
@@ -542,13 +540,14 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 					{
 						// read operation after tR done.
 						int64_t count = 0;
-						int64_t dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
 						bdbm_llm_req_t* req_ptr = (bdbm_llm_req_t*)(ri->ptr_punits[loop].ptr_req);
+						int64_t dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
 						dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + req_ptr->phyaddr.channel_no;
 
 						if (req_ptr->dma != 0)
 						{					
 #ifdef DYNAMIC_DMA
+							int64_t ch;
 							// check the channel busy time
 							if (ri->is_busy[req_ptr->phyaddr.channel_no] == 0)
 							{
@@ -556,7 +555,7 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 								//atomic_inc(&ri->busy_channel);
 							}
 
-							for (int64_t ch = 0; ch < 8; ch++)
+							for (ch = 0; ch < 8; ch++)
 							{
 								if (ri->is_busy[ch] != 0)
 								{
@@ -613,7 +612,6 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 			}
 		}
 	}
-#endif
 }
 
 
