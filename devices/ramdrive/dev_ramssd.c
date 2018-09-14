@@ -591,12 +591,6 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 				}
 
 				check = 1;
-
-				if ( elapsed_time_in_us > 20000)
-				{
-					bdbm_msg("timer elapsed time : %lld, %lld,%lld,", elapsed_time_in_us, channel, way);
-					bdbm_msg("Target_elapese.. : %lld", punit->target_elapsed_time_us);
-				}
 			} else {
 				bdbm_spin_unlock (&ri->ramssd_lock);
 			}

@@ -42,7 +42,7 @@ THE SOFTWARE.
 #define LAZY_MODE_THRESHOLD			10/10	// CP_max block's proportion over average
 #define EARLY_MODE_THRESHOLD		10/10 // whether 90% of tatal blks are CP0 or not
 
-#define PLANE_NUMBER	(2)
+#define PLANE_NUMBER	(1)
 #define GC_FACTOR		(0)
 
 #define GC_BACKGROUND_THRESHOLD		(0+5)*2

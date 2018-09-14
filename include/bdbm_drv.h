@@ -138,7 +138,8 @@ typedef struct {
 } bdbm_phyaddr_t;
 
 /* max kernel pages per physical flash page */
-#define BDBM_MAX_PAGES	(8)
+//#define BDBM_MAX_PAGES	(8)	//16KB x 2P	
+#define BDBM_MAX_PAGES	(4)	//16KB x 1P	
 
 /* a bluedbm blockio request */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,3,0)

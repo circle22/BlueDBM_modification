@@ -48,6 +48,7 @@ THE SOFTWARE.
 #include "algo/page_ftl.h"
 
 #define BUFFERING_LLM_COUNT	(320)
+#define ENTRY_SHIFT	2
 
 /* interface for hlm_nobuf */
 bdbm_hlm_inf_t _hlm_nobuf_inf = {
@@ -253,7 +254,7 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 //		bdbm_msg(" _delete_entry %lld", llm_idx + i);
 
 		// cache management.
-		entry = hash_entry + ((llm_idx + i)<<3);
+		entry = hash_entry + ((llm_idx + i)<<ENTRY_SHIFT);
 		for (j = 0; j < BDBM_MAX_PAGES; j++)
 		{
 			if (llm_req->logaddr.lpa[j] != -1)
@@ -324,7 +325,7 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 		ftl->invalidate_lpa(bdi, lr->logaddr.lpa[lr->logaddr.ofs], 1);
 
 		// cache hit management.
-		entry = hash_entry + ((p->cur_lr_idx << 3) + p->cur_buf_ofs);
+		entry = hash_entry + ((p->cur_lr_idx << ENTRY_SHIFT) + p->cur_buf_ofs);
 		entry->id = lr->logaddr.lpa[lr->logaddr.ofs];
 		entry->lr_idx = p->cur_lr_idx;
 		entry->buf_ofs = p->cur_buf_ofs;
@@ -380,7 +381,7 @@ int32_t __hlm_buffered_write(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 			ftl->invalidate_lpa(bdi, lr->logaddr.lpa[i], 1);
 
 			// cache hit management.
-			entry = hash_entry + ((p->cur_lr_idx << 3) + i);
+			entry = hash_entry + ((p->cur_lr_idx << ENTRY_SHIFT) + i);
 			entry->id = lr->logaddr.lpa[i];
 			entry->lr_idx = p->cur_lr_idx;
 			entry->buf_ofs = i;
@@ -522,7 +523,8 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 	}
 	
 	/* (3) send llm_req to llm */
-	if (bdi->ptr_llm_inf->make_reqs == NULL) {
+	if (bdi->ptr_llm_inf->make_reqs == NULL) 
+	{
 		/* send individual llm-reqs to llm */
 		bdbm_hlm_for_each_llm_req (lr, hr, i) {
 			if (bdbm_is_flush(lr->req_type))
@@ -536,15 +538,16 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 				bdbm_bug_on (1);
 			}
 		}
-	} else {
+	} 
+	else 
+	{
 		/* send a bulk of llm-reqs to llm if make_reqs is supported */
 		if (bdi->ptr_llm_inf->make_reqs (bdi, hr) != 0) {
 			bdbm_error ("oops! make_reqs () failed");
 			bdbm_bug_on (1);
 		}
 	}
-
-	bdbm_bug_on (hr->nr_llm_reqs != i);
+//	bdbm_bug_on (hr->nr_llm_reqs != i);
 
 	return 0;
 
