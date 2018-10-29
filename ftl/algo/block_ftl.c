@@ -598,7 +598,8 @@ uint32_t bdbm_block_ftl_get_free_ppa (
 uint32_t bdbm_block_ftl_map_lpa_to_ppa (
 	bdbm_drv_info_t* bdi, 
 	bdbm_logaddr_t* logaddr,
-	bdbm_phyaddr_t* ppa)
+	bdbm_phyaddr_t* ppa,
+	uint32_t nInfo)
 {
 	bdbm_block_ftl_private_t* p = BDBM_FTL_PRIV (bdi);
 	bdbm_block_mapping_entry_t* e = NULL;
@@ -998,7 +999,7 @@ uint32_t __bdbm_block_ftl_do_gc_block_merge (
 				bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
 				bdbm_bug_on (1);
 			}
-			if (bdbm_block_ftl_map_lpa_to_ppa (bdi, &r->logaddr, &r->phyaddr) != 0) {
+			if (bdbm_block_ftl_map_lpa_to_ppa (bdi, &r->logaddr, &r->phyaddr, 0) != 0) {
 				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
 				bdbm_bug_on (1);
 			}

@@ -77,6 +77,19 @@ static bdbm_blkio_req_t* __get_blkio_req (struct bio *bio)
 		goto fail;
 
 	/* get the type of the bio request */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0)
+	if (bio_op(bio) & REQ_OP_DISCARD)
+		br->bi_rw = REQTYPE_TRIM;
+	else if (bio_op(bio) == REQ_OP_READ)
+		br->bi_rw = REQTYPE_READ;
+	else if (bio_op(bio) == REQ_OP_WRITE)
+		br->bi_rw = REQTYPE_WRITE;
+	else {
+		bdbm_error ("oops! invalid request type (bi->bi_rw = %lx)", bio->bi_opf);
+		goto fail;
+	}
+#else	
 	if (bio->bi_rw & REQ_DISCARD)
 		br->bi_rw = REQTYPE_TRIM;
 	else if (bio_data_dir (bio) == READ || bio_data_dir (bio) == READA)
@@ -87,7 +100,7 @@ static bdbm_blkio_req_t* __get_blkio_req (struct bio *bio)
 		bdbm_error ("oops! invalid request type (bi->bi_rw = %lx)", bio->bi_rw);
 		goto fail;
 	}
-
+#endif
 	/* get the offset and the length of the bio */
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
@@ -134,13 +147,22 @@ static void __free_blkio_req (bdbm_blkio_req_t* br)
 		bdbm_free_atomic (br);
 }
 
+#if 0
 static void __host_blkio_make_request_fn (
 	struct request_queue *q, 
 	struct bio *bio)
 {
 	blkio_make_req (_bdi, (void*)bio);
 }
-
+#else
+static blk_qc_t __host_blkio_make_request_fn (
+	struct request_queue *q, 
+	struct bio *bio)
+{
+	blkio_make_req (_bdi, (void*)bio);
+	return BLK_QC_T_NONE;
+}
+#endif
 
 uint32_t blkio_open (bdbm_drv_info_t* bdi)
 {
