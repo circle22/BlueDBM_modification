@@ -103,6 +103,17 @@ babm_abm_subpage_t* __bdbm_abm_create_pst (bdbm_device_params_t* np)
 	pst = bdbm_malloc (np->nr_pages_per_block); // byte for page
 	bdbm_memset (pst, (0x1 << np->nr_subpages_per_page) - 1, np->nr_pages_per_block); // 0xF for 4 subpages, 0x3 for 2 subpages.
 
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+
+
+	// last page will be used meta information, so it will not have any valid date.
+	uint64_t meta_page_count = 1;			
+	uint8_t* tmp_pst = (uint8_t*)pst + (np->nr_pages_per_block - meta_page_count);
+	bdbm_memset (tmp_pst, 0x0, meta_page_count); // clear validbitmap.
+
+
+#endif
+
 	return pst;
 };
 
@@ -444,6 +455,24 @@ void bdbm_abm_erase_block (
 	if (blk->pst) {
 		bdbm_memset (blk->pst, (0x1 << bai->np->nr_subpages_per_page) - 1, bai->np->nr_pages_per_block); // 0xF for 4 subpages, 0x3 for 2 subpages.
 	}
+
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+	if ((channel_no == 0) && (chip_no == 0))
+	{
+		bdbm_msg ("block erase test 1 : invalid : %lld, valid bitmap %lld, %lld, %lld, %lld", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
+	}
+	
+	// last page will be used meta information, so it will not have any valid date.
+	uint64_t meta_page_count = 1;			
+	blk->nr_invalid_subpages = meta_page_count * bai->np->nr_subpages_per_page;
+	uint8_t* pst = (uint8_t*)blk->pst + (bai->np->nr_pages_per_block - meta_page_count);
+	bdbm_memset (pst, 0x0, meta_page_count); // clear validbitmap.
+
+	if ((channel_no == 0) && (chip_no == 0))
+	{
+		bdbm_msg ("block erase test 2 : invalid : %lld, valid bitmap %lld, %lld, %lld, %lld", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
+	}
+#endif
 
 	if ((channel_no == 0) && (chip_no == 0))
 	{

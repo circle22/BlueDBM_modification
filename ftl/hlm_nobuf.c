@@ -262,6 +262,18 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 				__hlm_nobuf_delete_entry(entry + j);
 			}
 		}
+
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
+
+		if ( (llm_req->phyaddr.page_no == np->nr_pages_per_block - 2) &&
+			  (llm_req->phyaddr.channel_no == np->nr_channels - 1) &&
+			  (llm_req->phyaddr.chip_no == np->nr_chips_per_channel - 1))
+		{
+			// need to flush copyback meta.
+			ftl->flush_meta(bdi);		
+		}
+#endif
 	}
 
 	p->flush_lr_idx += p->flush_threshold;

@@ -91,6 +91,12 @@ void display_ftl_params (bdbm_ftl_params* p)
 	bdbm_msg ("wl policy = %d (1: none, 2: swap)", p->wl_policy);
 	bdbm_msg ("trim mode = %d (1: enable, 2: disable)", p->trim);
 	bdbm_msg ("kernel sector = %d bytes", p->kernel_sector_size);
+
+#ifndef PER_PAGE_COPYBACK_MANAGEMENT
+	bdbm_msg ("copycount management = %d (1: block, 2: page)", 1);
+#else
+	bdbm_msg ("copycount management = %d (1: block, 2: page)", 2);
+#endif	
 	bdbm_msg ("");
 }
 

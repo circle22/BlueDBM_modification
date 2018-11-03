@@ -30,6 +30,7 @@ THE SOFTWARE.
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
 #define MAX_COPY_BACK	(0 + 1) // +1 is used for default or external copyback case
 //#define INFINITE_COPYBACK	// 
+#define PER_PAGE_COPYBACK_MANAGEMENT
 
 // GC_Operation Mode
 #define GC_OPERATION_MODE		0	// 0 - default, 1 - laze mode, 2 - Early mode, 3 Lazy + Early

@@ -64,6 +64,7 @@ bdbm_ftl_inf_t _ftl_page_ftl = {
 
 	.get_token = bdbm_page_ftl_get_token,
 	.consume_token = bdbm_page_ftl_consume_token,
+	.flush_meta = bdbm_page_ftl_flush_meta,
 	/*.load = bdbm_page_ftl_load,*/
 	/*.store = bdbm_page_ftl_store,*/
 	/*.get_segno = NULL,*/
@@ -129,6 +130,11 @@ typedef struct {
 	uint64_t partial_tail;
 	uint64_t required_subpage_count;
 	uint64_t buffered_subpage_count;
+
+	uint64_t erase_idx_start;
+	uint64_t host_meta_idx_start;
+	uint64_t gc_meta_idx_start;
+	uint64_t meta_load_idx_start;
 
 	uint64_t dst_offset;	
 	uint64_t dst_index;	
@@ -437,6 +443,11 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->partial_tail = p->partial_read_start;
 	p->required_subpage_count = 0;
 	p->buffered_subpage_count = 0;
+
+	p->erase_idx_start = p->partial_read_end;
+	p->host_meta_idx_start = p->erase_idx_start + p->nr_punits;
+	p->gc_meta_idx_start = p->host_meta_idx_start + p->nr_punits;
+	p->meta_load_idx_start = p->gc_meta_idx_start  + p->nr_punits;
 
 	p->dst_offset = 0;
 	p->dst_index = 0;
@@ -1458,7 +1469,7 @@ void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
 		// 1. Erase and Restore
 		if (src_blk != NULL)
 		{
-			uint64_t erase_req_idx = p->nr_punits*10 + unit;
+			uint64_t erase_req_idx = p->erase_idx_start + unit;
 
 			if (src_blk->nr_invalid_subpages != np->nr_subpages_per_block)
 			{
@@ -1608,6 +1619,153 @@ void check_valid_bitmap(bdbm_abm_block_t* blk)
 	}
 }
 
+void __bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi, uint64_t bGC_meta)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	uint64_t way, ch, unit, plane, subpage;
+	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for host meta write.
+	bdbm_llm_req_t* req = NULL;
+	
+	uint64_t dst_index = 0;
+	if (p->dst_index != 0)
+	{
+		dst_index = 1;
+	}
+	
+	for (way = 0; way < np->nr_chips_per_channel; way++)
+	{
+		for (ch = 0; ch < np->nr_channels; ch++)
+		{	
+			uint64_t subpage_idx = 0;					
+			unit = ch * np->nr_chips_per_channel + way;
+
+			// Write page
+			/* build hlm_req_gc for writes */
+			if (bGC_meta == 0)
+			{
+				// host active block meta write
+				req = &hlm_gc->llm_reqs[p->host_meta_idx_start+unit];
+				hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
+				hlm_reqs_pool_reset_logaddr (&req ->logaddr, BDBM_MAX_PAGES);
+
+				// cumulative count is 0.
+				bdbm_memset (req->fmain.kp_ptr[0], 0x0, np->nr_subpages_per_block * sizeof(uint32_t));
+			}
+			else
+			{
+				// gc active block meta write
+				req = &hlm_gc->llm_reqs[p->gc_meta_idx_start+unit];
+			}
+			
+			req->req_type = REQTYPE_GC_WRITE; /* change to write */
+
+			for (plane = 0; plane < np->nr_planes; plane++)
+			{
+				for (subpage = 0; subpage < np->nr_subpages_per_page; subpage++) 
+				{
+					/* move subpages that contain new data */
+					req->fmain.kp_stt[subpage_idx] = KP_STT_DATA;
+
+					((uint64_t*)req->foob.data)[subpage_idx] = 0xFFFFFF00 + unit;
+					req->logaddr.lpa[subpage_idx] = ((uint64_t*)req->foob.data)[subpage_idx];
+
+					subpage_idx++;
+				}
+			}
+
+			req->dma = np->nr_subpages_per_page * np->nr_planes;
+			req->ptr_hlm_req = (void*)hlm_gc;
+
+			if (bGC_meta == 0)
+			{
+				if (bdbm_page_ftl_get_free_ppa(bdi, unit, &req->phyaddr) != 0) {
+					bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
+					bdbm_bug_on (1);
+				}
+			}
+			else
+			{					
+				if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, dst_index, &req->phyaddr) != 0) {
+					bdbm_error ("bdbm_page_ftl_get_free_ppa_gc failed");
+					bdbm_bug_on (1);
+				}
+			}
+
+			// mapupdate is not needed.
+
+			/* send write reqs to llm */
+			hlm_gc->req_type = REQTYPE_GC_WRITE;
+			hlm_gc->nr_llm_reqs++;
+
+			if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) {
+				bdbm_error ("llm_make_req failed");
+				bdbm_bug_on (1);
+			}			
+		}
+	}
+}
+
+void __bdbm_page_ftl_load_meta(bdbm_drv_info_t* bdi)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	uint64_t unit, plane;
+	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for host meta write.
+
+	bdbm_msg("__bdbm_page_ftl_load_meta start: %lld,  %lld", hlm_gc->nr_llm_reqs, atomic64_read(&hlm_gc->nr_llm_reqs_done));
+
+	for (plane = 0; plane < np->nr_planes; plane++)
+	{
+		for (unit = 0; unit < p->nr_punits; unit++)
+		{
+		  	uint64_t subPage; 
+			bdbm_abm_block_t* src_blk = p->gc_src_bab[unit];
+			bdbm_llm_req_t* req = &hlm_gc->llm_reqs[p->meta_load_idx_start + unit + plane*p->nr_punits]; // one request per plane	
+			
+			hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
+			hlm_reqs_pool_reset_logaddr (&req ->logaddr, BDBM_MAX_PAGES);
+			
+			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++)
+			{
+ 				req->fmain.kp_stt[subPage] = KP_STT_DATA;
+			}
+			
+			req->req_type = REQTYPE_GC_READ;
+			req->dma = np->nr_subpages_per_page; // 0 - DMA bypass, 1 <= DMA
+
+			req->phyaddr.channel_no = src_blk[plane].channel_no;
+			req->phyaddr.chip_no = src_blk[plane].chip_no;
+			req->phyaddr.block_no = src_blk[plane].block_no;
+			req->phyaddr.page_no = np->nr_pages_per_block - 1;
+			req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
+			req->ptr_hlm_req = (void*)hlm_gc;
+			req->ret = 0;
+			
+			/* send read reqs to llm */
+			hlm_gc->req_type = REQTYPE_GC_READ;
+			hlm_gc->nr_llm_reqs++;
+			
+			if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) 
+			{
+				bdbm_error ("llm_make_req failed");
+				bdbm_bug_on (1);
+			}		
+		}								
+	}
+
+	while (hlm_gc->nr_llm_reqs != atomic64_read(&hlm_gc->nr_llm_reqs_done))
+	{
+		// wait.
+	}
+
+//	bdbm_llm_req_t* req = &hlm_gc->llm_reqs[p->meta_load_idx_start + unit + plane*p->nr_punits]; // one request per plane
+//	uint32_t* copyback_count = reinterpret_cast<uint32_t*>(req->fmain->kp_ptr[0]);
+	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start].fmain.kp_ptr[0]);
+	p->dst_index = copyback_count[0];
+
+	bdbm_msg("__bdbm_page_ftl_load_meta end: reqs - %lld,  %lld, copyback count - %lld", hlm_gc->nr_llm_reqs, atomic64_read(&hlm_gc->nr_llm_reqs_done), p->dst_index);
+}
 
 
 uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_t plane, uint64_t average_valid)
@@ -1768,6 +1926,29 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	
 	req->req_type = REQTYPE_GC_READ;
 	req->dma = 0; // 0 - DMA bypass, 1 - DMA
+
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+	//	bdbm_llm_req_t* req = &hlm_gc->llm_reqs[p->meta_load_idx_start + unit + plane*p->nr_punits]; // one request per plane
+	//	uint32_t* copyback_count = reinterpret_cast<uint32_t*>(req->fmain->kp_ptr[0]);
+	//	uint32_t* copyback_count = reinterpret_cast<uint32_t*>(hlm_gc->llm_reqs[p->meta_load_idx_start + unit]->fmain->kp_ptr[0]);
+	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start + unit].fmain.kp_ptr[0]);
+	p->dst_index = copyback_count[src_page + src_page_offs] + 1;
+
+	// new count = copyback_count[src_page + src_page_offs] + 1  
+	if (copyback_count[src_page + src_page_offs] + 1 == MAX_COPY_BACK)
+	{
+		refresh = 1; // utilize int
+		// new count = 0;
+
+		p->dst_index = 0;
+	}
+
+	if (unit == 0)
+	{
+		bdbm_msg("	read_page : %lld,  copyback count : %lld, next : %lld", src_page+src_page_offs, copyback_count[src_page + src_page_offs], p->dst_index);
+	}
+#endif
+
 	if (refresh == 0)
 	{
 		p->internal_copy_count += valid_count;
@@ -2021,6 +2202,10 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 	{
 		bdbm_page_ftl_alloc_srcblk(bdi);
 		p->src_valid = 1;
+
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+		__bdbm_page_ftl_load_meta(bdi);
+#endif
 	}
 
 	average_valid = ((p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits) / np->nr_planes;
@@ -2087,6 +2272,12 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 	bdbm_abm_block_t* src_blk = NULL;
 	uint64_t dst_index = p->dst_index; // default
 
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+	if (dst_index != 0)
+	{
+		dst_index = 1;
+	}
+#endif		
 
 	// copy information from read to write hlm...l
 //	bdbm_msg("before head :%lld %lld", p->partial_head, p->buffered_subpage_count);
@@ -2153,35 +2344,37 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 				bdbm_error ("llm_make_req failed");
 				bdbm_bug_on (1);
 			}
+
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+			//	bdbm_llm_req_t* req = &hlm_gc->llm_reqs[p->meta_load_idx_start + unit + plane*p->nr_punits]; // one request per plane
+			//	uint32_t* copyback_count = reinterpret_cast<uint32_t*>(req->fmain->kp_ptr[0]);
+			//	uint32_t* copyback_count = reinterpret_cast<uint32_t*>(hlm_gc->llm_reqs[p->meta_load_idx_start + unit]->fmain->kp_ptr[0]);
+
+			// update accumulated copyback count 			
+			uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->gc_meta_idx_start + unit].fmain.kp_ptr[0]);
+			copyback_count[req->phyaddr.page_no] = p->dst_index;
+			
+			if (unit == 0)
+			{
+				bdbm_msg("	write_page : %lld,  copyback count : %lld", req->phyaddr.page_no, p->dst_index);
+			}
+#endif	
 		}
 	}
 
 	p->gc_copy_count += p->gc_subpages_move_unit;
-//	p->src_valid_page_count -= valid_page_count;
-
-/* 
-	if (p->src_valid_page_count > p->gc_subpages_move_unit)
-	{
-		p->src_valid_page_count -= p->gc_subpages_move_unit; 
-	}
-	else
-	{
-		p->src_valid_page_count = 0;
-	}
-*/
 	p->dst_offset = req->phyaddr.page_no * p->nr_punits;
-		
+	
+#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+	if (req->phyaddr.page_no == np->nr_pages_per_block - 1)
+	{
+		// need to flush copyback meta.
+		__bdbm_page_ftl_flush_meta(bdi,/*bGC_meta*/ 1);
+	}
+#endif
+	
 //	bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no,p->src_valid_page_count);
 
-/*	bdbm_msg("write pageoff : %lld,  %lld %lld %lld %lld , %lld", req->phyaddr.page_no,
-	p->gc_dst_bab[dst_index][0]->nr_invalid_subpages,
-	p->gc_dst_bab[dst_index][1]->nr_invalid_subpages,
-	p->gc_dst_bab[dst_index][2]->nr_invalid_subpages,
-	p->gc_dst_bab[dst_index][3]->nr_invalid_subpages,
-	p->src_valid_page_count
-	);
-*/
-	
 	return 0;
 }
 
@@ -2717,5 +2910,10 @@ void bdbm_page_ftl_consume_token (bdbm_drv_info_t* bdi, uint32_t used_token)
 			p->token_count = 0;
 		}			
 	}
+}
+
+void bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi)
+{	
+	__bdbm_page_ftl_flush_meta(bdi, /*bGC_meta*/ 0);
 }
 

@@ -60,6 +60,7 @@ uint32_t bdbm_page_ftl_store (bdbm_drv_info_t* bdi, const char* fn);
 
 uint32_t bdbm_page_ftl_get_token (bdbm_drv_info_t* bdi);
 void bdbm_page_ftl_consume_token (bdbm_drv_info_t* bdi, uint32_t used_token);
+void bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi);
 
 #endif /* _BLUEDBM_FTL_BLOCKFTL_H */
 

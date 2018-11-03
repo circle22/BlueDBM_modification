@@ -336,6 +336,7 @@ typedef struct {
 
 	uint32_t (*get_token) (bdbm_drv_info_t* bdi);
 	void (*consume_token) (bdbm_drv_info_t* bdi, uint32_t used_token);
+	void (*flush_meta) (bdbm_drv_info_t* bdi);
 
 	/* interfaces for intialization */
 	uint32_t (*scan_badblocks) (bdbm_drv_info_t* bdi);
