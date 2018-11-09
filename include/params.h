@@ -28,7 +28,7 @@ THE SOFTWARE.
 #define DWHONG	// Test
 #define FLOW_CTRL
 #define DYNAMIC_DMA		// DMA speed slowdown when multi channel DMA happen
-#define MAX_COPY_BACK	(0 + 1) // +1 is used for default or external copyback case
+#define MAX_COPY_BACK	(5 + 1) // +1 is used for default or external copyback case
 //#define INFINITE_COPYBACK	// 
 #define PER_PAGE_COPYBACK_MANAGEMENT
 
@@ -43,7 +43,7 @@ THE SOFTWARE.
 #define LAZY_MODE_THRESHOLD			10/10	// CP_max block's proportion over average
 #define EARLY_MODE_THRESHOLD		10/10 // whether 90% of tatal blks are CP0 or not
 
-#define PLANE_NUMBER	(1)
+#define PLANE_NUMBER	(2)
 #define GC_FACTOR		(0)
 
 #define GC_BACKGROUND_THRESHOLD		(0+5)*2

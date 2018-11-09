@@ -340,9 +340,6 @@ uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 
 		bdbm_hlm_for_each_llm_req (cur_lr, hlm_req, idx) 
 		{		
-			if ((cur_lr->req_type & REQTYPE_DONE))
-				continue;
-
 			//nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
 			if ((idx % bdi->parm_dev.nr_subpages_per_page) == 0)
 			{
@@ -397,17 +394,15 @@ uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 	}
 
 	bdbm_hlm_for_each_llm_req (cur_lr, hlm_req, idx) {
-		if (!(cur_lr->req_type & REQTYPE_DONE)) {
-			if (bdbm_is_flush(cur_lr->req_type))
-			{
-				// this llm request is used for buffering
-				continue;
-			}
+		if (bdbm_is_flush(cur_lr->req_type))
+		{
+			// this llm request is used for buffering
+			continue;
+		}
 
-			if (bdi->ptr_llm_inf->make_req (bdi, cur_lr) != 0) {
-				bdbm_error ("oops! make_req () failed");
-				bdbm_bug_on (1);
-			}
+		if (bdi->ptr_llm_inf->make_req (bdi, cur_lr) != 0) {
+			bdbm_error ("oops! make_req () failed");
+			bdbm_bug_on (1);
 		}
 	}
 	

@@ -154,7 +154,12 @@ bdbm_abm_info_t* bdbm_abm_create (
 		bai->blocks[loop].block_no = __get_block_ofs (np, loop);
 		bai->blocks[loop].erase_count = 0;
 		bai->blocks[loop].pst = NULL;
+#ifndef PER_PAGE_COPYBACK_MANAGEMENT
 		bai->blocks[loop].nr_invalid_subpages = 0;
+#else
+		bai->blocks[loop].nr_invalid_subpages = np->nr_subpages_per_page;
+#endif
+
 		/* create a 'page status table' (pst) if necessary */
 		if (use_pst) {
 			if ((bai->blocks[loop].pst = __bdbm_abm_create_pst (np)) == NULL) {
@@ -459,7 +464,7 @@ void bdbm_abm_erase_block (
 #ifdef PER_PAGE_COPYBACK_MANAGEMENT
 	if ((channel_no == 0) && (chip_no == 0))
 	{
-		bdbm_msg ("block erase test 1 : invalid : %lld, valid bitmap %lld, %lld, %lld, %lld", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
+	//	bdbm_msg ("block erase test 1 : invalid : %lld, valid bitmap %llx, %llx, %llx, %llx", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
 	}
 	
 	// last page will be used meta information, so it will not have any valid date.
@@ -470,7 +475,7 @@ void bdbm_abm_erase_block (
 
 	if ((channel_no == 0) && (chip_no == 0))
 	{
-		bdbm_msg ("block erase test 2 : invalid : %lld, valid bitmap %lld, %lld, %lld, %lld", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
+	//	bdbm_msg ("block erase test 2 : invalid : %lld, valid bitmap %llx, %llx, %llx, %llx", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
 	}
 #endif
 

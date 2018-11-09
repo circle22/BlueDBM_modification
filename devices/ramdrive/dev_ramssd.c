@@ -893,15 +893,13 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 				break;
 			}
 
-			if (target_elapsed_time_us > 0) {
-			//	target_elapsed_time_us -= (target_elapsed_time_us / 10);
-			}
+			ri->ptr_punits[punit_id].dma_reflected = (bdbm_is_read (r->req_type)) ? 0 : 1;
 		} 
 		else {
 			target_elapsed_time_us = 0;
+			ri->ptr_punits[punit_id].dma_reflected = 1;
 		}
 
-		ri->ptr_punits[punit_id].dma_reflected = (bdbm_is_read (r->req_type)) ? 0 : 1;
 
 		/* register reqs */
 		bdbm_spin_lock (&ri->ramssd_lock);

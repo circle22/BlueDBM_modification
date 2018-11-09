@@ -818,6 +818,15 @@ uint64_t hlm_reqs_pool_compaction(
 					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
 					((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[subpage];
 
+
+	
+					if ( ((int64_t*)src_req->foob.data)[subpage] > 0x1FFFFFF)
+					{
+						bdbm_msg(" 1. lpn : %llx, index : %lld, subpage: %lld", ((int64_t*)src_req->foob.data)[subpage], req_idx, subpage);
+					}
+
+
+
 					valid_page_count++;
 				}
 				else
@@ -847,6 +856,11 @@ uint64_t hlm_reqs_pool_compaction(
 							dst_req->dma++;
 
 							valid_page_count++;
+
+							if ( ((int64_t*)src_req->foob.data)[src_subpage] > 0x1FFFFFF)
+							{
+								bdbm_msg(" 2. lpn : %llx, index : %lld, subpage: %lld", ((int64_t*)src_req->foob.data)[src_subpage], src_idx, src_subpage);
+							}
 						}
 
 						src_subpage++;

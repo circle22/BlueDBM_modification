@@ -48,7 +48,7 @@ THE SOFTWARE.
 #include "algo/page_ftl.h"
 
 #define BUFFERING_LLM_COUNT	(320)
-#define ENTRY_SHIFT	2
+#define ENTRY_SHIFT	3
 
 /* interface for hlm_nobuf */
 bdbm_hlm_inf_t _hlm_nobuf_inf = {
@@ -200,7 +200,7 @@ uint32_t __hlm_buffered_read(bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr){
 
 		lr->fmain.kp_stt[lr->logaddr.ofs] = KP_STT_HOLE;
 		lr->logaddr.lpa[lr->logaddr.ofs] = -1;
-		lr->req_type &= REQTYPE_DONE;
+		lr->req_type |= REQTYPE_DONE;
 		return 0;		
 	}
 	else
