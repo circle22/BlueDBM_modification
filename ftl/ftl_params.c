@@ -92,6 +92,8 @@ void display_ftl_params (bdbm_ftl_params* p)
 	bdbm_msg ("trim mode = %d (1: enable, 2: disable)", p->trim);
 	bdbm_msg ("kernel sector = %d bytes", p->kernel_sector_size);
 
+	bdbm_msg ("copyback_threshold = %d", MAX_COPY_BACK - 1);
+
 #ifndef PER_PAGE_COPYBACK_MANAGEMENT
 	bdbm_msg ("copycount management = %d (1: block, 2: page)", 1);
 #else

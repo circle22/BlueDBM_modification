@@ -7,7 +7,7 @@ filename=/dev/blueDBM
 
 ioengine=libaio
 iodepth=32
-runtime=120
+runtime=3600
 size=64GB
 
 
