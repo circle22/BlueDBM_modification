@@ -42,13 +42,14 @@ THE SOFTWARE.
 #include "utime.h"
 #include "umemory.h"
 #include "uthash.h"
+#include "uthread.h"
 
 #include "algo/no_ftl.h"
 #include "algo/block_ftl.h"
 #include "algo/page_ftl.h"
 
 #define BUFFERING_LLM_COUNT	(320)
-#define ENTRY_SHIFT	3
+#define ENTRY_SHIFT	2
 
 /* interface for hlm_nobuf */
 bdbm_hlm_inf_t _hlm_nobuf_inf = {
@@ -219,8 +220,7 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 	bdbm_hlm_hash_entry * entry;
 
 //	bdbm_msg("flush_buffer start: %lld, %lld, %lld - %lld", p->cur_lr_idx, p->flush_lr_idx, p->queuing_lr_count, p->utilization);
-
-//	bdbm_msg(" _Flush_State");	
+//	bdbm_msg(" _Flush_State : %d, %d", p->queuing_lr_count, p->flush_threshold);	
 
 	for (i = 0; i < p->flush_threshold; i++)
 	{
@@ -451,8 +451,13 @@ uint32_t __hlm_nobuf_make_rw_req (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hr)
 		if (p->queuing_lr_count >= (p->queuing_threshold - hr->nr_llm_reqs - 1))
 		{
 			loop_cnt++;
-			if ( loop_cnt < 10000000)
+			if ( loop_cnt < 10000000) // about 1 sec.
 			{
+				if ( (loop_cnt % 10000) == 0)
+				{
+					bdbm_thread_yield();
+				}
+	
 				if ( (loop_cnt % 1000000) == 0)
 				{
 					bdbm_msg("hlm_empty loop : %lld", loop_cnt);

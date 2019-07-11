@@ -108,6 +108,8 @@ int __llm_mq_thread (void* arg)
 			continue;
 		}	
 
+//		bdbm_msg(" queue entry : %d %d %d %d %d %d %d %d", p->q->aQic[0],p->q->aQic[1],p->q->aQic[2],p->q->aQic[3],p->q->aQic[4],p->q->aQic[5],p->q->aQic[6],p->q->aQic[7]);
+
 		/* send reqs until Q becomes empty */
 		for (loop = 0; loop < p->nr_punits; loop++) {
 			bdbm_prior_queue_item_t* qitem = NULL;
@@ -123,16 +125,9 @@ int __llm_mq_thread (void* arg)
 				bdbm_sema_unlock (&p->punit_locks[loop]);
 				continue;
 			}
-//bdbm_msg("  5. llm make req");
 			r->ptr_qitem = qitem;
 
 			pmu_update_q (bdi, r);
-
-			if (cnt % 100000 == 0) 
-			{
-			//	bdbm_msg ("llm_make_req: %llu, %llu", cnt, bdbm_prior_queue_get_nr_items (p->q));
-				bdbm_thread_yield();	
-			}
 
 			if (bdi->ptr_dm_inf->make_req (bdi, r)) {
 				bdbm_sema_unlock (&p->punit_locks[loop]);
@@ -142,10 +137,18 @@ int __llm_mq_thread (void* arg)
 				bdbm_warning ("oops! make_req failed");
 			}
 
-			cnt++;
-			empty_loop = 0;
-//bdbm_msg("  6. llm make req");
+
+//			bdbm_msg("     llm make req : %d, %d, %d, %d, %d,  %d", r->phyaddr.punit_id, r->phyaddr.chip_no, r->phyaddr.block_no, r->phyaddr.page_no, r->logaddr.lpa[0], r->dma);
 		}
+
+		cnt++;
+		if (cnt % 100000 == 0) 
+		{
+		//	bdbm_msg ("llm_make_req: %llu, %llu", cnt, bdbm_prior_queue_get_nr_items (p->q));
+			bdbm_thread_yield();	
+		}
+
+		empty_loop = 0;
 	}
 
 	return 0;
@@ -255,7 +258,7 @@ uint32_t llm_mq_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 	pmu_update_sw (bdi, r);
 
 	/* wait until there are enough free slots in Q */
-	while (bdbm_prior_queue_get_nr_items (p->q) >= p->nr_punits*2 /*96*/) {
+	while (bdbm_prior_queue_get_nr_items (p->q) >= p->nr_punits*3 /*96*/) {
 		bdbm_thread_yield ();
 	}
 
@@ -311,6 +314,7 @@ uint32_t llm_mq_merge_read_reqs (bdbm_llm_req_t* dst_lr, bdbm_llm_req_t* src_lr)
 			if (dst_lr->fmain.kp_stt[i] == KP_STT_DATA) 
 			{
 				/* two llm_reqs target the same physical address and offset */
+
 				return 1;
 			} 
 			else 
@@ -318,7 +322,7 @@ uint32_t llm_mq_merge_read_reqs (bdbm_llm_req_t* dst_lr, bdbm_llm_req_t* src_lr)
 				dst_lr->fmain.kp_stt[i] = KP_STT_DATA;
 				dst_lr->fmain.kp_ptr[i] = src_lr->fmain.kp_ptr[i];
 				dst_lr->dma += src_lr->dma;
-				//src_lr->fmain.kp_stt[i] = KP_STT_HOLE;
+				src_lr->fmain.kp_stt[i] = KP_STT_HOLE;
 			}
 			break;
 		}
@@ -339,7 +343,7 @@ uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 		uint64_t dst_idx = 0;
 
 		bdbm_hlm_for_each_llm_req (cur_lr, hlm_req, idx) 
-		{		
+		{
 			//nr_kpages = ri->np->page_main_size / KERNEL_PAGE_SIZE;
 			if ((idx % bdi->parm_dev.nr_subpages_per_page) == 0)
 			{
@@ -460,6 +464,7 @@ void llm_mq_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 #if defined(ENABLE_SEQ_DBG)
 		bdbm_sema_unlock (&p->dbg_seq);
 #endif
+//		bdbm_msg("        end req : %d", r->phyaddr.punit_id);
 	}
 }
 
@@ -467,6 +472,7 @@ uint32_t llm_mq_get_queuing_count(bdbm_drv_info_t* bdi)
 {
 	struct bdbm_llm_mq_private* p = (struct bdbm_llm_mq_private*)BDBM_LLM_PRIV(bdi);
 
-	return bdbm_prior_queue_get_nr_items (p->q)*2;	
+	return bdbm_prior_queue_get_nr_items (p->q);	
+	//return bdbm_prior_queue_get_nr_items (p->q)*2;	
 }
 

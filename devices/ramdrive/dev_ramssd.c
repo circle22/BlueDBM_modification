@@ -501,7 +501,6 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 	uint64_t loop, nr_parallel_units;
 	uint64_t nr_channels, nr_ways;
 	uint64_t channel, way;
-	uint32_t check;
 
 	nr_parallel_units = dev_ramssd_get_chips_per_ssd (ri);
 	nr_channels = dev_ramssd_get_channles_per_ssd(ri);
@@ -509,14 +508,14 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 
 	for (channel = 0; channel < nr_channels; channel++)
 	{
-		check = 0;
 		for (way = 0; way < nr_ways; way++)
 		{
 			loop = channel*nr_ways + way;
 
-			bdbm_spin_lock (&ri->ramssd_lock);
 			if (ri->ptr_punits[loop].ptr_req != NULL) 
 			{
+				bdbm_spin_lock (&ri->ramssd_lock);
+
 				dev_ramssd_punit_t* punit;
 				int64_t elapsed_time_in_us;
 
@@ -546,23 +545,6 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 
 						if (req_ptr->dma != 0)
 						{					
-#ifdef DYNAMIC_DMA
-							int64_t ch;
-							// check the channel busy time
-							if (ri->is_busy[req_ptr->phyaddr.channel_no] == 0)
-							{
-								ri->is_busy[req_ptr->phyaddr.channel_no] = 1;
-								//atomic_inc(&ri->busy_channel);
-							}
-
-							for (ch = 0; ch < 8; ch++)
-							{
-								if (ri->is_busy[ch] != 0)
-								{
-									count++;
-								}
-							}
-#endif
 							dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
 						}
 							
@@ -579,7 +561,7 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 							dma_time_us = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
 						}
 
-						punit->target_elapsed_time_us = dma_time_us;
+						punit->target_elapsed_time_us += dma_time_us;
 						punit->dma_reflected = 1;
 						
 						bdbm_spin_unlock (&ri->ramssd_lock);
@@ -589,21 +571,7 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 				{
 					bdbm_spin_unlock (&ri->ramssd_lock);
 				}
-
-				check = 1;
-			} else {
-				bdbm_spin_unlock (&ri->ramssd_lock);
-			}
-		}
-		
-		if ((check != 0) && (ri->is_busy[channel] != 0))
-		{
-			uint64_t elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ri->ptr_channels[channel].sw));
-			if (elapsed_time_in_us >= ri->ptr_channels[channel].target_elapsed_time_us)
-			{
-				ri->is_busy[channel] = 0;
-				//atomic_dec(&ri->busy_channel);
-			}
+			} 
 		}
 	}
 }
@@ -614,7 +582,17 @@ static void __dev_ramssd_fops_wq_handler (struct work_struct *w)
 {
 	dev_ramssd_wq_t* work = (dev_ramssd_wq_t*)w;
 
+//	bdbm_msg("							check start : %d", temp);
 	__ramssd_cmd_done ((dev_ramssd_info_t*)work->ri);
+//	bdbm_msg("							check end   : %d", temp);
+
+	ktime_t ktime;
+	dev_ramssd_info_t* ri;
+	ri = (dev_ramssd_info_t*)work->ri;
+
+//	ktime = ktime_set (0, 10 * 1000);
+//	hrtimer_start (&ri->hrtimer, ktime, HRTIMER_MODE_REL);
+
 }
 
 static enum hrtimer_restart __ramssd_timing_hrtimer_cmd_done (struct hrtimer *ptr_hrtimer)
@@ -826,29 +804,12 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			case REQTYPE_RMW_WRITE:
 			case REQTYPE_META_WRITE:
 
-#ifdef DYNAMIC_DMA
-				// check the channel busy time
-				if (ri->is_busy[r->phyaddr.channel_no] == 0)
-				{
-					ri->is_busy[r->phyaddr.channel_no] = 1;
-					//atomic_inc(&ri->busy_channel);
-				}
-				
-				for (ch = 0; ch < 8; ch++)
-				{
-					if (ri->is_busy[ch] != 0)
-					{
-						count++;
-					}
-				}
-#endif
-				dma_time_us = ri->np->prog_dma_time_us[count] * dma_count;
-				
+				dma_time_us = ri->np->prog_dma_time_us[count] * dma_count;				
 				ptr_channels = ri->ptr_channels + r->phyaddr.channel_no;
+
 				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us(&(ptr_channels->sw));
 				if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
-				{	// channel is idle.
-					// start time update.
+				{	// channel is idle.start time update.
 					bdbm_stopwatch_start (&(ptr_channels->sw));
 					ptr_channels->target_elapsed_time_us = dma_time_us;
 				}
@@ -904,9 +865,9 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 		/* register reqs */
 		bdbm_spin_lock (&ri->ramssd_lock);
 		if (ri->ptr_punits[punit_id].ptr_req == NULL) {
-			ri->ptr_punits[punit_id].ptr_req = (void*)r;
 			bdbm_stopwatch_start (&ri->ptr_punits[punit_id].sw);
 			ri->ptr_punits[punit_id].target_elapsed_time_us = target_elapsed_time_us;
+			ri->ptr_punits[punit_id].ptr_req = (void*)r;
 		} else {
 			bdbm_error ("More than two requests are assigned to the same parallel unit (ptr=%p, punit=%llu)",
 				ri->ptr_punits[punit_id].ptr_req, punit_id);
@@ -914,7 +875,9 @@ uint32_t dev_ramssd_send_cmd (dev_ramssd_info_t* ri, bdbm_llm_req_t* r)
 			ret = 1;
 			goto fail;
 		}
-		bdbm_spin_unlock (&ri->ramssd_lock);
+
+			bdbm_spin_unlock (&ri->ramssd_lock);
+			
 
 		/* register reqs for callback */
 		__ramssd_timing_register_schedule (ri);

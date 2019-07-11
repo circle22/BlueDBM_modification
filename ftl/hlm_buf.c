@@ -122,7 +122,6 @@ int __hlm_buf_thread (void* arg)
 
 		/* if nothing is in Q, then go to the next punit */
 		busy_count = 0;
-//		while (!bdbm_queue_is_empty (p->q, 0)) {
 		while (1) 
 		{
 			uint32_t qIdx = 1;
@@ -136,7 +135,6 @@ int __hlm_buf_thread (void* arg)
 				qIdx = 0;
 			}
 
-//			bdbm_msg(" 3. hlm_nobuf_make_req");
 			if ((r = (bdbm_hlm_req_t*)bdbm_queue_dequeue (p->q, qIdx)) != NULL) {
 				if (hlm_nobuf_make_req (bdi, r)) {
 					/* if it failed, we directly call 'ptr_host_inf->end_req' */
@@ -163,8 +161,6 @@ int __hlm_buf_thread (void* arg)
 
 			idle_count = 0;
 			idle_loop = 0;
-
-//			bdbm_msg(" 4. hlm_nobuf_make_req");
 		} 
 	
 	}

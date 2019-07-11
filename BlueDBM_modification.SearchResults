@@ -1,3 +1,0 @@
----- LAZY_CORRECTION_MODE Matches (2 in 2 files) ----
-Page_ftl.c (ftl\algo):#if	(LAZY_CORRECTION_MODE != 0)
-Params.h (include):#define LAZY_CORRECTION_MODE	(GC_OPERATION_MODE % 2)

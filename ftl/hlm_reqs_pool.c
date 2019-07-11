@@ -541,7 +541,6 @@ static int __hlm_reqs_pool_create_write_req (
         }
 
 		/* decide the reqtype for llm_req */
-//		ptr_lr->req_type = REQTYPE_WRITE;
 		ptr_lr->req_type = REQTYPE_WRITE;
 
 		if (hole == 1 && pool->in_place_rmw && br->bi_rw == REQTYPE_WRITE) {
@@ -578,6 +577,8 @@ static int __hlm_reqs_pool_create_write_req (
     }
 	
     if (nr_valid > 0 && nr_valid < max_map_cnt){
+		bdbm_msg(" oops,  %d, %d", nr_valid, max_map_cnt);
+
         bdbm_llm_req_t* next = ptr_lr + 1;
         ptr_lr->logaddr.ofs = 0;
         for (k = 1; k < (pool->io_unit / pool->map_unit) - 1; k++) {

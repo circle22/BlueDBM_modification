@@ -26,6 +26,7 @@ THE SOFTWARE.
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/log2.h>
+#include <linux/random.h>
 
 #elif defined (USER_MODE)
 #include <stdio.h>
@@ -48,6 +49,13 @@ THE SOFTWARE.
 #include "algo/abm.h"
 #include "algo/page_ftl.h"
 
+#ifdef COPYBACK_QUOTA
+	#ifdef PER_PAGE_COPYBACK_MANAGEMENT
+		#define PER_PAGE_QUOTA
+	#else
+		#define PER_BLOCK_QUOTA
+	#endif
+#endif
 
 /* FTL interface */
 bdbm_ftl_inf_t _ftl_page_ftl = {
@@ -84,6 +92,21 @@ typedef struct {
 	bdbm_phyaddr_t phyaddr; /* physical location */
 	uint8_t sp_off;
 } bdbm_page_mapping_entry_t;
+
+typedef struct {
+	uint32_t threshold_copyback;
+	uint32_t proportion;
+} blk_distribution_info; 
+
+#ifdef COPYBACK_QUOTA
+typedef struct {	
+	uint32_t threshold_copyback;
+	uint32_t diminishing_quota;
+#ifdef PER_BLOCK_QUOTA	
+	uint32_t copyback_quota;			
+#endif
+} quota_info;
+#endif
 
 typedef struct {
 	bdbm_abm_info_t* bai;
@@ -135,7 +158,20 @@ typedef struct {
 	uint64_t host_meta_idx_start;
 	uint64_t gc_meta_idx_start;
 	uint64_t meta_load_idx_start;
-	uint8_t* cached_copyback_count;	
+	uint8_t* cached_copyback_info;
+
+#ifdef COPYBACK_QUOTA
+	uint32_t initial_quota;
+	uint32_t new_quota; // used for per page quota.
+
+	blk_distribution_info distribution_info[10];
+
+	uint32_t quota_to_dstIdx[13];
+	uint32_t dstIdx_to_quota[13];
+
+	quota_info* blk_quota_data;
+#endif
+
 
 	uint64_t dst_offset;	
 	uint64_t dst_index;	
@@ -455,8 +491,8 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->gc_meta_idx_start = p->host_meta_idx_start + p->nr_punits;
 	p->meta_load_idx_start = p->gc_meta_idx_start  + p->nr_punits;
 
-	p->cached_copyback_count = (uint8_t*)bdbm_zmalloc(np->nr_blocks_per_chip*np->nr_pages_per_block);
-	bdbm_msg("addr : %llx, size: %lld", p->cached_copyback_count, np->nr_blocks_per_chip*np->nr_pages_per_block);
+	p->cached_copyback_info = (uint8_t*)bdbm_zmalloc(np->nr_blocks_per_chip*np->nr_pages_per_block);
+	bdbm_msg("addr : %llx, size: %lld", p->cached_copyback_info, np->nr_blocks_per_chip*np->nr_pages_per_block);
 
 	p->dst_offset = 0;
 	p->dst_index = 0;
@@ -495,6 +531,236 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		req = p->gc_hlm.llm_reqs + (p->gc_meta_idx_start + i);
 		hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
 	}
+
+
+#ifdef COPYBACK_QUOTA
+	p->blk_quota_data = (quota_info*)bdbm_zmalloc(sizeof(quota_info)*np->nr_blocks_per_chip);
+
+	p->distribution_info[0].threshold_copyback = 5;
+	p->distribution_info[1].threshold_copyback = 4;
+	p->distribution_info[2].threshold_copyback = 3;
+	p->distribution_info[3].threshold_copyback = 2;
+	p->distribution_info[4].threshold_copyback = 1;
+	p->distribution_info[5].threshold_copyback = 0;
+
+	p->new_quota = 0;
+#if 1
+	// case 0 - 0
+	p->initial_quota = 12;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 99;
+	p->distribution_info[2].proportion = 1;
+	p->distribution_info[3].proportion = 0;
+	p->distribution_info[4].proportion = 0;
+	p->distribution_info[5].proportion = 0;
+
+	p->quota_to_dstIdx[0] = 7;
+	p->quota_to_dstIdx[1] = 7;
+	p->quota_to_dstIdx[2] = 7;
+	p->quota_to_dstIdx[3] = 6;
+	p->quota_to_dstIdx[4] = 5;
+	p->quota_to_dstIdx[5] = 4;	
+	p->quota_to_dstIdx[6] = 3;		
+	p->quota_to_dstIdx[7] = 3;		
+	p->quota_to_dstIdx[8] = 2;		
+	p->quota_to_dstIdx[9] = 1;				
+	p->quota_to_dstIdx[10] = 1;				
+	p->quota_to_dstIdx[11] = 1;	
+	p->quota_to_dstIdx[12] = 0;
+
+	p->dstIdx_to_quota[0] = 12;
+	p->dstIdx_to_quota[1] = 9;
+	p->dstIdx_to_quota[2] = 8;
+	p->dstIdx_to_quota[3] = 6;
+	p->dstIdx_to_quota[4] = 5;
+	p->dstIdx_to_quota[5] = 4;
+	p->dstIdx_to_quota[6] = 3;
+	p->dstIdx_to_quota[7] = 0;
+
+#elif 0 
+	// case 1 - 1000
+	p->initial_quota = 12;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 88;
+	p->distribution_info[2].proportion = 11;
+	p->distribution_info[3].proportion = 1;
+	p->distribution_info[4].proportion = 0;
+	p->distribution_info[5].proportion = 0;
+
+	p->quota_to_dstIdx[0] = 7;
+	p->quota_to_dstIdx[1] = 7;
+	p->quota_to_dstIdx[2] = 7;
+	p->quota_to_dstIdx[3] = 6;
+	p->quota_to_dstIdx[4] = 5;
+	p->quota_to_dstIdx[5] = 4;	
+	p->quota_to_dstIdx[6] = 3;		
+	p->quota_to_dstIdx[7] = 3;		
+	p->quota_to_dstIdx[8] = 2;		
+	p->quota_to_dstIdx[9] = 1;				
+	p->quota_to_dstIdx[10] = 1;				
+	p->quota_to_dstIdx[11] = 1;	
+	p->quota_to_dstIdx[12] = 0;
+
+	p->dstIdx_to_quota[0] = 12;
+	p->dstIdx_to_quota[1] = 9;
+	p->dstIdx_to_quota[2] = 8;
+	p->dstIdx_to_quota[3] = 6;
+	p->dstIdx_to_quota[4] = 5;
+	p->dstIdx_to_quota[5] = 4;
+	p->dstIdx_to_quota[6] = 3;
+	p->dstIdx_to_quota[7] = 0;
+
+#elif 0 
+	// case 2 - 2000
+	p->initial_quota = 12;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 30;
+	p->distribution_info[2].proportion = 64;
+	p->distribution_info[3].proportion = 6;
+	p->distribution_info[4].proportion = 0;
+	p->distribution_info[5].proportion = 0;
+
+	p->quota_to_dstIdx[0] = 7;
+	p->quota_to_dstIdx[1] = 7;
+	p->quota_to_dstIdx[2] = 7;
+	p->quota_to_dstIdx[3] = 6;
+	p->quota_to_dstIdx[4] = 5;
+	p->quota_to_dstIdx[5] = 4;	
+	p->quota_to_dstIdx[6] = 3;		
+	p->quota_to_dstIdx[7] = 3;		
+	p->quota_to_dstIdx[8] = 2;		
+	p->quota_to_dstIdx[9] = 1;				
+	p->quota_to_dstIdx[10] = 1;				
+	p->quota_to_dstIdx[11] = 1;	
+	p->quota_to_dstIdx[12] = 0;
+
+	p->dstIdx_to_quota[0] = 12;
+	p->dstIdx_to_quota[1] = 9;
+	p->dstIdx_to_quota[2] = 8;
+	p->dstIdx_to_quota[3] = 6;
+	p->dstIdx_to_quota[4] = 5;
+	p->dstIdx_to_quota[5] = 4;
+	p->dstIdx_to_quota[6] = 3;
+	p->dstIdx_to_quota[7] = 0;
+
+#elif 0
+	// case 3 - 3000
+	p->initial_quota = 6;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 0;
+	p->distribution_info[2].proportion = 71;
+	p->distribution_info[3].proportion = 26;
+	p->distribution_info[4].proportion = 3;
+	p->distribution_info[5].proportion = 0;
+
+	p->quota_to_dstIdx[0] = 4;
+	p->quota_to_dstIdx[1] = 4;
+	p->quota_to_dstIdx[2] = 3;
+	p->quota_to_dstIdx[3] = 2;
+	p->quota_to_dstIdx[4] = 1;
+	p->quota_to_dstIdx[5] = 1;	
+	p->quota_to_dstIdx[6] = 0;		
+
+	p->dstIdx_to_quota[0] = 6;
+	p->dstIdx_to_quota[1] = 4;
+	p->dstIdx_to_quota[2] = 3;
+	p->dstIdx_to_quota[3] = 2;
+	p->dstIdx_to_quota[4] = 0;
+#elif 0	
+	// case 4 - 4000
+	p->initial_quota = 6;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 0;
+	p->distribution_info[2].proportion = 15;
+	p->distribution_info[3].proportion = 74;
+	p->distribution_info[4].proportion = 11;
+	p->distribution_info[5].proportion = 0;
+
+	p->quota_to_dstIdx[0] = 4;
+	p->quota_to_dstIdx[1] = 4;
+	p->quota_to_dstIdx[2] = 3;
+	p->quota_to_dstIdx[3] = 2;
+	p->quota_to_dstIdx[4] = 1;
+	p->quota_to_dstIdx[5] = 1;	
+	p->quota_to_dstIdx[6] = 0;		
+
+	p->dstIdx_to_quota[0] = 6;
+	p->dstIdx_to_quota[1] = 4;
+	p->dstIdx_to_quota[2] = 3;
+	p->dstIdx_to_quota[3] = 2;
+	p->dstIdx_to_quota[4] = 0;
+#else	
+	// case 5 - 5000
+	p->initial_quota = 2;
+	p->distribution_info[0].proportion = 0;
+	p->distribution_info[1].proportion = 0;
+	p->distribution_info[2].proportion = 0;
+	p->distribution_info[3].proportion = 44;
+	p->distribution_info[4].proportion = 53;
+	p->distribution_info[5].proportion = 3;
+
+	p->quota_to_dstIdx[0] = 2;
+	p->quota_to_dstIdx[1] = 1;
+	p->quota_to_dstIdx[2] = 0;
+
+	p->dstIdx_to_quota[0] = 2;
+	p->dstIdx_to_quota[1] = 1;
+	p->dstIdx_to_quota[2] = 0;
+#endif
+	
+	bdbm_msg(" initial quota : %lld",p->initial_quota);
+	bdbm_msg(" %d, %d, %d, %d, %d, %d",		p->distribution_info[0].proportion,
+		p->distribution_info[1].proportion,
+		p->distribution_info[2].proportion,
+		p->distribution_info[3].proportion,
+		p->distribution_info[4].proportion,
+		p->distribution_info[5].proportion);
+
+	uint64_t idx;
+	for (idx = 0; idx < np->nr_blocks_per_chip; idx++)
+	{
+		uint32_t rand_value;
+		uint32_t probability = 0;
+		uint32_t array_idx;
+
+		get_random_bytes(&rand_value, sizeof(uint32_t));
+		rand_value %= 100;
+
+		for (array_idx = 0; array_idx < 10; array_idx++)
+		{
+			probability += p->distribution_info[array_idx].proportion;
+
+			if (rand_value < probability)
+			{
+				uint32_t threshold_copyback = p->distribution_info[array_idx].threshold_copyback;
+
+#ifdef PER_BLOCK_QUOTA	
+				p->blk_quota_data[idx].copyback_quota = p->initial_quota;
+#endif				
+				p->blk_quota_data[idx].threshold_copyback = threshold_copyback;
+
+				if (threshold_copyback > 0)
+				{
+					p->blk_quota_data[idx].diminishing_quota = p->initial_quota / threshold_copyback;
+				}
+				else
+				{
+					p->blk_quota_data[idx].diminishing_quota = p->initial_quota + 1;
+				}
+				
+				//bdbm_msg(" idx : %lld, c quota : %lld, d quota : %lld, threshold :%lld",
+				//	idx, p->blk_quota_data[idx].copyback_quota,
+				//	p->blk_quota_data[idx].diminishing_quota,
+				//	p->blk_quota_data[idx].threshold_copyback);
+					
+				break;
+			}
+		}
+	}
+
+#endif
+
+
  
 	return 0;
 }
@@ -797,6 +1063,9 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 				//bdbm_msg("T %lld,I %lld,D %lld,P %lld,R %lld, %lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count);	
 				bdbm_msg("T %lld  I %lld D %lld P %lld R %lld  %lld : %lld  %4lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count, p->host_update_count, (p->host_update_count+p->gc_copy_count)*1000/p->host_update_count);	
 			}
+#ifdef PER_BLOCK_QUOTA			
+			p->blk_quota_data[p->ac_bab[0]->block_no].copyback_quota = p->initial_quota;
+#endif
 		}
 	} else {
 		/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
@@ -860,6 +1129,14 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			b->copy_count = copy_count;
 			p->block_info[copy_count]++;
 
+#ifdef PER_BLOCK_QUOTA
+			if (unit == 0)
+			{
+				p->blk_quota_data[b->block_no + plane].copyback_quota = p->dstIdx_to_quota[copy_count];
+
+				//bdbm_msg( "new dst - idx : %lld, quota : %lld", copy_count, p->dstIdx_to_quota[copy_count]);
+			}
+#endif			
 		}
 				
 		/* ok; go ahead with 0 offset */ 
@@ -1595,12 +1872,31 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 	}
 	
 	p->generated_token /= np->nr_pages_per_block;
-	
+	p->generated_token--;
+
+#ifndef COPYBACK_QUOTA	
 	p->dst_index = src_blk[0].copy_count + 1;
 	if (p->dst_index == MAX_COPY_BACK)
 	{
 		p->dst_index = 0;
 	}
+#else
+
+#ifdef	PER_BLOCK_QUOTA
+	int32_t newQuota = p->blk_quota_data[src_blk[0].block_no].copyback_quota - p->blk_quota_data[src_blk[0].block_no].diminishing_quota;
+
+	if (newQuota >= 0)
+	{
+		p->dst_index = p->quota_to_dstIdx[newQuota];
+	}
+	else
+	{
+		p->dst_index = 0;
+	}
+#else
+	// PER_BLOCK_QUOTA
+#endif
+#endif
 
 #if	(EARLY_CORRECTION_MODE != 0)
 	if ((p->utilization < UTILIZATION_EARLY_MODE) &&
@@ -1614,7 +1910,7 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 //		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
 //		bdbm_page_ftl_print_blocks(bdi);
 
-//	bdbm_msg("GC %lld,V %lld,U %lld,M %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
+	bdbm_msg("GC %lld,V %lld,U %lld,M %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
 }
 
 void check_valid_bitmap(bdbm_abm_block_t* blk)
@@ -1743,7 +2039,12 @@ void __bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi, uint64_t bGC_meta)
 	{
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
-			bdbm_memset (p->cached_copyback_count + ((req->phyaddr.block_no + plane)* np->nr_pages_per_block), 0x0, np->nr_pages_per_block);
+#ifdef PER_PAGE_QUOTA
+			bdbm_memset (p->cached_copyback_info + ((req->phyaddr.block_no + plane)* np->nr_pages_per_block), p->initial_quota, np->nr_pages_per_block);
+#else		
+			bdbm_memset (p->cached_copyback_info + ((req->phyaddr.block_no + plane)* np->nr_pages_per_block), 0x0, np->nr_pages_per_block);
+#endif
+			
 		}
 	}
 	uint32_t* copyback_count = (uint32_t*)(req->fmain.kp_ptr[0]);
@@ -1805,13 +2106,29 @@ void __bdbm_page_ftl_load_meta(bdbm_drv_info_t* bdi)
 		// wait.
 	}
 
-	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start].fmain.kp_ptr[0]);
+#ifndef PER_PAGE_QUOTA		// per count management.
+	//uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start].fmain.kp_ptr[0]);
 	//p->dst_index = copyback_count[0]+1;
-	p->dst_index = p->cached_copyback_count[src_blk->block_no * np->nr_pages_per_block] + 1;
+	p->dst_index = p->cached_copyback_info[src_blk->block_no * np->nr_pages_per_block] + 1;
 	if (p->dst_index == MAX_COPY_BACK)
 	{
 		p->dst_index = 0;
 	}
+#else
+	uint32_t nCurQuota = p->cached_copyback_info[src_blk->block_no * np->nr_pages_per_block];
+
+	if (nCurQuota >= p->blk_quota_data[src_blk->block_no].diminishing_quota)
+	{
+		p->dst_index = 1;
+		p->new_quota = nCurQuota - p->blk_quota_data[src_blk->block_no].diminishing_quota;
+	}	
+	else
+	{	
+		p->dst_index = 0;
+		p->new_quota = p->initial_quota;
+	}	
+#endif
+	
 //	bdbm_msg("__bdbm_page_ftl_load_meta end: reqs - %lld,  %lld, copyback count - %lld", hlm_gc->nr_llm_reqs, atomic64_read(&hlm_gc->nr_llm_reqs_done), p->dst_index);
 }
 
@@ -1840,19 +2157,10 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 
 	valid_subpage_count = np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages;
 
-#ifndef INFINITE_COPYBACK
-	if (src_blk[plane].copy_count+1 == MAX_COPY_BACK)
+	if (p->dst_index == 0)
 	{
 		refresh = 1; // utilize internal copyback
 	}
-#endif
-
-#if 0		
-	if ((p->gc_count > 22000) && (p->gc_count < 24000))
-	{
-		refresh = 1;
-	}
-#endif
 	
 	p->src_unit_idx[plane][unit] = 0xFF;
 	p->src_plane_idx[plane][unit] = 0xFF;
@@ -1976,20 +2284,34 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	req->dma = 0; // 0 - DMA bypass, 1 - DMA
 
 #ifdef PER_PAGE_COPYBACK_MANAGEMENT
-	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start + unit].fmain.kp_ptr[0]);
+//	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start + unit].fmain.kp_ptr[0]);
 //	p->dst_index = copyback_count[src_page + src_page_offs] + 1;
-	p->dst_index = p->cached_copyback_count[src_blk[plane].block_no * np->nr_pages_per_block + (src_page + src_page_offs)] + 1;
+
+	refresh = 0;
+
+	#ifndef PER_PAGE_QUOTA		// per count management.
+	p->dst_index = p->cached_copyback_info[src_blk[plane].block_no * np->nr_pages_per_block + (src_page + src_page_offs)] + 1;
 
 	if ( p->dst_index == MAX_COPY_BACK)
 	{
 		refresh = 1; // utilize int
 		p->dst_index = 0;
 	}
+	#else
+	uint32_t nCurQuota = p->cached_copyback_info[src_blk[plane].block_no * np->nr_pages_per_block + (src_page + src_page_offs)];
 
-	if (unit == 0)
+	if (nCurQuota >= p->blk_quota_data[src_blk->block_no].diminishing_quota)
 	{
-	//	bdbm_msg("	read_page : %lld,  copyback count next : %lld", src_page+src_page_offs, p->dst_index);
-	}
+		p->dst_index = 1;			
+		p->new_quota = nCurQuota - p->blk_quota_data[src_blk->block_no].diminishing_quota;
+	}	
+	else
+	{
+		refresh = 1; // utilize int
+		p->dst_index = 0;
+		p->new_quota = p->initial_quota;	
+	}	
+	#endif
 #endif
 
 	if (refresh == 0)
@@ -2402,13 +2724,21 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 
 #ifdef PER_PAGE_COPYBACK_MANAGEMENT
 			// update accumulated copyback count 			
-			uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->gc_meta_idx_start + unit].fmain.kp_ptr[0]);
+			//uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->gc_meta_idx_start + unit].fmain.kp_ptr[0]);
 			//copyback_count[req->phyaddr.page_no] = p->dst_index;
-			
+
+		#ifndef PER_PAGE_QUOTA
 			for (plane = 0; plane < np->nr_planes; plane++)
 			{
-				p->cached_copyback_count[(req->phyaddr.block_no + plane) * np->nr_pages_per_block + req->phyaddr.page_no] = p->dst_index;
+				p->cached_copyback_info[(req->phyaddr.block_no + plane) * np->nr_pages_per_block + req->phyaddr.page_no] = p->dst_index;
 			}
+		#else
+			for (plane = 0; plane < np->nr_planes; plane++)
+			{
+				p->cached_copyback_info[(req->phyaddr.block_no + plane) * np->nr_pages_per_block + req->phyaddr.page_no] = p->new_quota;
+			}
+		#endif
+
 
 			if (unit == 0)
 			{
@@ -2972,4 +3302,3 @@ void bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi)
 {	
 	__bdbm_page_ftl_flush_meta(bdi, /*bGC_meta*/ 0);
 }
-

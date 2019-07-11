@@ -46,12 +46,12 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 	NAND_PAGE_SIZE = 4096*BDBM_MAX_PAGES/PLANE_NUMBER,
 	//NAND_PAGE_OOB_SIZE = 64, /* for bdbm hardware */
 	NAND_PAGE_OOB_SIZE = 8*BDBM_MAX_PAGES/PLANE_NUMBER,
-	NR_PAGES_PER_BLOCK = 64, //64,
-	NR_BLOCKS_PER_CHIP = 1024*2, //1024, //1600, //800,//1600,//1600, //2300 , // 192/BDBM_MAX_PAGES,
+	NR_PAGES_PER_BLOCK = 128, //128, //64, //64,
+	NR_BLOCKS_PER_CHIP = 1024, //1024, //1600, //800,//1600,//1600, //2300 , // 192/BDBM_MAX_PAGES,
 	//NR_BLOCKS_PER_CHIP = 8/BDBM_MAX_PAGES,
-	NR_CHIPS_PER_CHANNEL = 4,
-	//NR_CHIPS_PER_CHANNEL = 8,
-	NR_CHANNELS = 8,
+	NR_CHIPS_PER_CHANNEL = 16,
+	//NR_CHIPS_PER_CHANNEL =:w 8,
+	NR_CHANNELS = 1,
 	NAND_HOST_BUS_TRANS_TIME_US = 0,	/* assume to be 0 */
 	NAND_CHIP_BUS_TRANS_TIME_US = 100,	/* 100us */
 	NAND_PAGE_PROG_TIME_US = 500,		/* 1.3ms */	
@@ -131,13 +131,16 @@ bdbm_device_params_t get_default_device_params (void)
  	p.page_oob_size = _param_page_oob_size;
 	p.device_type = _param_device_type;
 #ifdef DWHONG
-	p.page_lsb_prog_time_us = 250; 
-	p.page_msb_prog_time_us = 1050;
+	// for MLC device
+	//p.page_lsb_prog_time_us = 250; 
+	//p.page_msb_prog_time_us = 1050;
+	
+	p.page_lsb_prog_time_us = 335*2; 
+	p.page_msb_prog_time_us = 335*2;
 	
 //	p.read_dma_time_us = 20;
 //	p.prog_dma_time_us = 205; //102;
 //	p.gc_read_dma_time_us = 102;	
-
 
 #if 0
 	p.gc_read_dma_time_us[0] = 53;
@@ -163,31 +166,8 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[7] = 96;
 	p.prog_dma_time_us[8] = 112;
 #else
-
 /*
-	p.read_dma_time_us[0] = 27;
-	p.read_dma_time_us[1] = 27;
-	p.read_dma_time_us[2] = 27;
-	p.read_dma_time_us[3] = 27;
-	p.read_dma_time_us[4] = 29;
-	p.read_dma_time_us[5] = 36;
-	p.read_dma_time_us[6] = 43;
-	p.read_dma_time_us[7] = 49;
-	p.read_dma_time_us[8] = 57;
-
-	p.page_read_time_us = 50;	// tR 50us.
-
-	// 16KB....
-	p.prog_dma_time_us[0] = 27;
-	p.prog_dma_time_us[1] = 27;
-	p.prog_dma_time_us[2] = 27;
-	p.prog_dma_time_us[3] = 27;
-	p.prog_dma_time_us[4] = 29;
-	p.prog_dma_time_us[5] = 36;
-	p.prog_dma_time_us[6] = 43;
-	p.prog_dma_time_us[7] = 49;
-	p.prog_dma_time_us[8] = 57;
-*/
+	// 1P.
 	p.read_dma_time_us[0] = 7;
 	p.read_dma_time_us[1] = 7;
 	p.read_dma_time_us[2] = 7;
@@ -208,7 +188,31 @@ bdbm_device_params_t get_default_device_params (void)
 	p.prog_dma_time_us[5] = 9;
 	p.prog_dma_time_us[6] = 10;
 	p.prog_dma_time_us[7] = 12;
-	p.prog_dma_time_us[8] = 14;
+	p.prog_dma_time_us[8] = 14; */
+
+// 2P + 400Mhz.
+	p.read_dma_time_us[0] = 5;
+	p.read_dma_time_us[1] = 7;
+	p.read_dma_time_us[2] = 7;
+	p.read_dma_time_us[3] = 7;
+	p.read_dma_time_us[4] = 7;
+	p.read_dma_time_us[5] = 7;
+	p.read_dma_time_us[6] = 7;
+	p.read_dma_time_us[7] = 7;
+	p.read_dma_time_us[8] = 7;
+
+	p.page_read_time_us = 75;	// tR 50us.
+
+	p.prog_dma_time_us[0] = 4*2;	//12
+	p.prog_dma_time_us[1] = 12;
+	p.prog_dma_time_us[2] = 12;
+	p.prog_dma_time_us[3] = 12;
+	p.prog_dma_time_us[4] = 12;
+	p.prog_dma_time_us[5] = 12;
+	p.prog_dma_time_us[6] = 12;
+	p.prog_dma_time_us[7] = 12;
+	p.prog_dma_time_us[8] = 12;
+
 #endif
 
 
