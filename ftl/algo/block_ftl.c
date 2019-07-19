@@ -167,9 +167,9 @@ uint32_t bdbm_block_ftl_create (bdbm_drv_info_t* bdi)
 	_ftl_block_ftl.ptr_private = (void*)p;
 
 	/* calculate # of mapping entries */
-	nr_blks_per_seg = np->nr_chips_per_channel * np->nr_channels;
+	nr_blks_per_seg = np->nr_units_per_channel * np->nr_channels;
 	nr_pgs_per_seg = np->nr_pages_per_block * nr_blks_per_seg;
-	nr_segs = np->nr_blocks_per_chip;
+	nr_segs = np->nr_blocks_per_unit;
 
 	/* intiailize variables for ftl */
 	p->nr_segs = nr_segs;
@@ -1091,10 +1091,10 @@ void __bdbm_block_ftl_badblock_scan_eraseblks (bdbm_drv_info_t* bdi, uint64_t bl
 	/* setup blocks to erase */
 	bdbm_memset (p->gc_bab, 0x00, sizeof (bdbm_abm_block_t*) * p->nr_blks_per_seg);
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_units_per_channel; j++) {
 			bdbm_abm_block_t* b = NULL;
 			bdbm_llm_req_t* r = NULL;
-			uint64_t punit_id = i*np->nr_chips_per_channel+j;
+			uint64_t punit_id = i*np->nr_units_per_channel+j;
 
 			if ((b = bdbm_abm_get_block (p->abm, i, j, block_no)) == NULL) {
 				bdbm_error ("oops! bdbm_abm_get_block failed");
@@ -1156,7 +1156,7 @@ static void __bdbm_block_mark_it_dead (
 	int i, j;
 
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_units_per_channel; j++) {
 			bdbm_abm_block_t* b = NULL;
 
 			if ((b = bdbm_abm_get_block (p->abm, i, j, block_no)) == NULL) {
@@ -1198,7 +1198,7 @@ uint32_t bdbm_block_ftl_badblock_scan (bdbm_drv_info_t* bdi)
 	/* step2: erase all the blocks */
 	bdbm_msg ("step2: erase all the blocks");
 	bdi->ptr_llm_inf->flush (bdi);
-	for (i = 0; i < np->nr_blocks_per_chip; i++) {
+	for (i = 0; i < np->nr_blocks_per_die; i++) {
 		__bdbm_block_ftl_badblock_scan_eraseblks (bdi, i);
 	}
 

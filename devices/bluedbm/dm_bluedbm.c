@@ -358,7 +358,7 @@ uint32_t dm_bluedbm_probe (bdbm_drv_info_t* bdi, bdbm_device_params_t* params)
 
 	/* setup NAND parameters according to users' inputs */
 	__dm_setup_device_params (params);
-	nr_punit = params->nr_channels * params->nr_chips_per_channel;
+	nr_punit = params->nr_channels * params->nr_units_per_channel;
 
 	/* create a private for bluedbm */
 	if ((priv = bdbm_zmalloc (sizeof (struct dm_bluedbm_private))) == NULL)	{

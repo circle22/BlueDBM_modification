@@ -126,15 +126,15 @@ uint64_t dev_ramssd_get_block_size (dev_ramssd_info_t* ptr_ramssd_info) {
 }
 
 inline static 
-uint64_t dev_ramssd_get_chip_size (dev_ramssd_info_t* ptr_ramssd_info) {
+uint64_t dev_ramssd_get_die_size (dev_ramssd_info_t* ptr_ramssd_info) {
 	return dev_ramssd_get_block_size (ptr_ramssd_info) * 
-		ptr_ramssd_info->np->nr_blocks_per_chip;
+		ptr_ramssd_info->np->nr_blocks_per_die;
 }
 
 inline static 
 uint64_t dev_ramssd_get_channel_size (dev_ramssd_info_t* ptr_ramssd_info) {
-	return dev_ramssd_get_chip_size (ptr_ramssd_info) * 
-		ptr_ramssd_info->np->nr_chips_per_channel;
+	return dev_ramssd_get_die_size (ptr_ramssd_info) * 
+		ptr_ramssd_info->np->nr_units_per_channel/ptr_ramssd_info->np->nr_groups_per_die;
 }
 
 inline static 
@@ -149,13 +149,13 @@ uint64_t dev_ramssd_get_pages_per_block (dev_ramssd_info_t* ptr_ramssd_info) {
 }
 
 inline static 
-uint64_t dev_ramssd_get_blocks_per_chips (dev_ramssd_info_t* ptr_ramssd_info) {
-	return ptr_ramssd_info->np->nr_blocks_per_chip;
+uint64_t dev_ramssd_get_blocks_per_die (dev_ramssd_info_t* ptr_ramssd_info) {
+	return ptr_ramssd_info->np->nr_blocks_per_die;
 }
 
 inline static 
-uint64_t dev_ramssd_get_chips_per_channel (dev_ramssd_info_t* ptr_ramssd_info) {
-	return ptr_ramssd_info->np->nr_chips_per_channel;
+uint64_t dev_ramssd_get_units_per_channel (dev_ramssd_info_t* ptr_ramssd_info) {
+	return ptr_ramssd_info->np->nr_units_per_channel;
 }
 
 inline static 
@@ -164,15 +164,15 @@ uint64_t dev_ramssd_get_channles_per_ssd (dev_ramssd_info_t* ptr_ramssd_info) {
 }
 
 inline static 
-uint64_t dev_ramssd_get_chips_per_ssd (dev_ramssd_info_t* ptr_ramssd_info) {
+uint64_t dev_ramssd_get_units_per_ssd (dev_ramssd_info_t* ptr_ramssd_info) {
 	return ptr_ramssd_info->np->nr_channels *
-		ptr_ramssd_info->np->nr_chips_per_channel;
+		ptr_ramssd_info->np->nr_units_per_channel;
 }
 
 inline static 
 uint64_t dev_ramssd_get_blocks_per_ssd (dev_ramssd_info_t* ptr_ramssd_info) {
-	return dev_ramssd_get_chips_per_ssd (ptr_ramssd_info) *
-		ptr_ramssd_info->np->nr_blocks_per_chip;
+	return dev_ramssd_get_units_per_ssd (ptr_ramssd_info) *
+		ptr_ramssd_info->np->nr_blocks_per_unit;
 }
 
 inline static 

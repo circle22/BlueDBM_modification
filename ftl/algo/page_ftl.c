@@ -218,7 +218,7 @@ bdbm_page_mapping_entry_t* __bdbm_page_ftl_create_mapping_table (
 	for (loop = 0; loop < np->nr_subpages_per_ssd; loop++) {
 		me[loop].status = PFTL_PAGE_NOT_ALLOCATED;
 		me[loop].phyaddr.channel_no = PFTL_PAGE_INVALID_ADDR;
-		me[loop].phyaddr.chip_no = PFTL_PAGE_INVALID_ADDR;
+		me[loop].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
 		me[loop].phyaddr.block_no = PFTL_PAGE_INVALID_ADDR;
 		me[loop].phyaddr.page_no = PFTL_PAGE_INVALID_ADDR;
 		me[loop].sp_off = -1;
@@ -247,7 +247,7 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_units_per_channel; j++) {
 			if (bai->anr_free_blks[i][j] < 2)
 			{
 				// Need to go GC.
@@ -258,7 +258,7 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 
 	/* get a set of free blocks for active blocks */
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) 
+		for (j = 0; j < np->nr_units_per_channel; j++) 
 		{
 			uint64_t plane;			
 			/* restore previous active block */
@@ -266,7 +266,7 @@ uint32_t __bdbm_page_ftl_get_active_blocks (
 			{
 				for (plane = 0; plane < np->nr_planes; plane++)
 				{
-					bdbm_abm_make_dirty_blk(bai, i, j, (*bab)->block_no + plane);
+					bdbm_abm_make_dirty_blk(bai, i, j/np->nr_groups_per_die, (*bab)->block_no + plane);
 				}
 			}
 			
@@ -307,7 +307,7 @@ bdbm_abm_block_t** __bdbm_page_ftl_create_active_blocks (
 	uint64_t nr_punits;
 	bdbm_abm_block_t** bab = NULL;
 
-	nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	nr_punits = np->nr_units_per_channel * np->nr_channels;
 
 	/* create a set of active blocks */
 	if ((bab = (bdbm_abm_block_t**)bdbm_zmalloc 
@@ -355,7 +355,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	}
 	p->curr_puid = 0;
 	p->curr_page_ofs = 0;
-	p->nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	p->nr_punits = np->nr_units_per_channel * np->nr_channels;
 	p->nr_punits_pages = p->nr_punits * np->nr_pages_per_block;
 	bdbm_spin_lock_init (&p->ftl_lock);
 	_ftl_page_ftl.ptr_private = (void*)p;
@@ -424,7 +424,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 
 		p->block_info[i] = 0;
 	}
-	p->block_info[MAX_COPY_BACK] = p->nr_punits * np->nr_blocks_per_chip;
+	p->block_info[MAX_COPY_BACK] = p->nr_punits * np->nr_blocks_per_unit;
 
 	// src block offset.
 	for (i = 0; i < np->nr_planes; i++)
@@ -491,8 +491,8 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->gc_meta_idx_start = p->host_meta_idx_start + p->nr_punits;
 	p->meta_load_idx_start = p->gc_meta_idx_start  + p->nr_punits;
 
-	p->cached_copyback_info = (uint8_t*)bdbm_zmalloc(np->nr_blocks_per_chip*np->nr_pages_per_block);
-	bdbm_msg("addr : %llx, size: %lld", p->cached_copyback_info, np->nr_blocks_per_chip*np->nr_pages_per_block);
+	p->cached_copyback_info = (uint8_t*)bdbm_zmalloc(np->nr_blocks_per_unit*np->nr_pages_per_block);
+	bdbm_msg("addr : %llx, size: %lld", p->cached_copyback_info, np->nr_blocks_per_unit*np->nr_pages_per_block);
 
 	p->dst_offset = 0;
 	p->dst_index = 0;
@@ -534,7 +534,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 
 
 #ifdef COPYBACK_QUOTA
-	p->blk_quota_data = (quota_info*)bdbm_zmalloc(sizeof(quota_info)*np->nr_blocks_per_chip);
+	p->blk_quota_data = (quota_info*)bdbm_zmalloc(sizeof(quota_info)*np->nr_blocks_per_unit);
 
 	p->distribution_info[0].threshold_copyback = 5;
 	p->distribution_info[1].threshold_copyback = 4;
@@ -717,7 +717,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 		p->distribution_info[5].proportion);
 
 	uint64_t idx;
-	for (idx = 0; idx < np->nr_blocks_per_chip; idx++)
+	for (idx = 0; idx < np->nr_blocks_per_die; idx++)
 	{
 		uint32_t rand_value;
 		uint32_t probability = 0;
@@ -821,7 +821,7 @@ void bdbm_page_ftl_print_llm(bdbm_llm_req_t* llm_reqs, uint64_t size)
 	{
 		if (llm_reqs[index].req_type != 0)
 		{
-			bdbm_msg("index: %lld, reqType:%x, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.chip_no, p->gc_count);
+			bdbm_msg("index: %lld, reqType:%x, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.way_no, p->gc_count);
 		}
 	}
 }
@@ -835,9 +835,9 @@ void bdbm_page_ftl_print_blocks(bdbm_drv_info_t* bdi)
 	bdbm_msg("Allocated Blocks");
 	for (ch = 0; ch < np->nr_channels;	ch++)
 	{
-		for (way = 0; way < np->nr_chips_per_channel; way++)
+		for (way = 0; way < np->nr_units_per_channel; way++)
 		{	
-			unit = ch * np->nr_chips_per_channel + way;
+			unit = ch * np->nr_units_per_channel + way;
 
 			if ((p->ac_bab[unit] != NULL) && 
 				(p->gc_src_bab[unit]!= NULL) && 
@@ -848,8 +848,8 @@ void bdbm_page_ftl_print_blocks(bdbm_drv_info_t* bdi)
 				(p->ac_bab[unit])->block_no,
 				(p->gc_src_bab[unit])->block_no,
 				(p->gc_dst_bab[0][unit])->block_no, unit);
-				//(p->gc_dst_bab[1][ch*np->nr_chips_per_channel + way])->block_no,
-				//(p->gc_dst_bab[2][ch*np->nr_chips_per_channel + way])->block_no);
+				//(p->gc_dst_bab[1][ch*np->nr_units_per_channel + way])->block_no,
+				//(p->gc_dst_bab[2][ch*np->nr_units_per_channel + way])->block_no);
 			}
 		}
 	}
@@ -890,14 +890,14 @@ void bdbm_page_ftl_print_totalEC(bdbm_drv_info_t* bdi)
 
 	for (ch = 0; ch < np->nr_channels;	ch++)
 	{	
-		for (way = 0; way < np->nr_chips_per_channel; way++)
+		for (way = 0; way < np->nr_units_per_channel/np->nr_groups_per_die; way++)
 		{
 			uint64_t nTotalEC = 0;
-			unit =  (ch * np->nr_chips_per_channel + way);
+			unit =  (ch * np->nr_units_per_channel + way);
 			
-			for (blk = 0; blk < np->nr_blocks_per_chip; blk++)
+			for (blk = 0; blk < np->nr_blocks_per_die; blk++)
 			{
-				blk_idx = ch* np->nr_blocks_per_channel + way * np->nr_blocks_per_chip + blk;
+				blk_idx = ch* np->nr_blocks_per_channel + way * np->nr_blocks_per_die + blk;
 
 				pblk = p->bai->blocks + blk_idx;
 				nTotalEC += pblk->erase_count;
@@ -975,7 +975,7 @@ void bdbm_page_ftl_print_copyback_info(bdbm_drv_info_t* bdi)
 	{	
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{
-			for (way = 0; way < np->nr_chips_per_channel; way++)
+			for (way = 0; way < np->nr_units_per_channel; way++)
 			{
 				bdbm_abm_list_for_each_dirty_block (pos, p->bai, ch, way) 
 				{
@@ -1008,25 +1008,30 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_abm_block_t* b = NULL;
 	uint64_t curr_channel;
-	uint64_t curr_chip;
-
-	/* get the channel & chip numbers */
+	uint64_t curr_way;
+	uint64_t curr_unit;
+	
+	/* get the channel & unit numbers */
 	curr_channel = p->curr_puid % np->nr_channels;
-	curr_chip = p->curr_puid / np->nr_channels;
+	curr_way = (p->curr_puid / np->nr_channels) % np->nr_ways ;
+	curr_unit = curr_way * np->nr_groups_per_die + (p->curr_puid/np->nr_channels)/np->nr_ways ;
+
 
 	/* get the physical offset of the active blocks */
-	b = p->ac_bab[curr_channel * np->nr_chips_per_channel + curr_chip];
+	b = p->ac_bab[curr_channel * np->nr_units_per_channel + curr_unit];
 	ppa->channel_no =  b->channel_no;
-	ppa->chip_no = b->chip_no;
+	ppa->way_no = b->way_no;
 	ppa->block_no = b->block_no;
 	ppa->page_no = p->curr_page_ofs;
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
 
+	bdbm_msg("ch %d, way %d, unit %d, blk %d, page %d", ppa->channel_no, ppa->way_no, ppa->punit_id, ppa->block_no, ppa->page_no);
+
 	/* check some error cases before returning the physical address */
 	bdbm_bug_on (ppa->channel_no != curr_channel);
-	bdbm_bug_on (ppa->chip_no != curr_chip);
+	bdbm_bug_on (ppa->way_no != curr_way);
+	bdbm_bug_on (ppa->unit_no != curr_unit);
 	bdbm_bug_on (ppa->page_no >= np->nr_pages_per_block);
-
 
 	/* go to the next parallel unit */
 	if ((p->curr_puid + 1) == p->nr_punits) {
@@ -1059,8 +1064,6 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			if ( p->gc_copy_count != 0)
 			{
 				p->host_update_count += (np->nr_subpages_per_block * p->nr_punits * np->nr_planes);
-
-				//bdbm_msg("T %lld,I %lld,D %lld,P %lld,R %lld, %lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count);	
 				bdbm_msg("T %lld  I %lld D %lld P %lld R %lld  %lld : %lld  %4lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count, p->host_update_count, (p->host_update_count+p->gc_copy_count)*1000/p->host_update_count);	
 			}
 #ifdef PER_BLOCK_QUOTA			
@@ -1090,8 +1093,8 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 				
 	if (p->gc_dst_blk_offs[copy_count][unit] == np->nr_pages_per_block)
 	{
-		uint64_t ch = unit/np->nr_chips_per_channel;
-		uint64_t way = unit%np->nr_chips_per_channel;
+		uint64_t ch = unit/np->nr_units_per_channel;
+		uint64_t way = unit%np->nr_units_per_channel;
 		
 		/* restore previous active block */
 		if (p->gc_dst_bab[copy_count][unit] != NULL)
@@ -1152,7 +1155,7 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 	b = p->gc_dst_bab[copy_count][unit];
 
 	ppa->channel_no =  b->channel_no;
-	ppa->chip_no = b->chip_no;
+	ppa->way_no = b->way_no;
 	ppa->block_no = b->block_no;
 	ppa->page_no = p->gc_dst_blk_offs[copy_count][unit];
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa); // unit
@@ -1187,7 +1190,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 				bdbm_abm_invalidate_page (
 					p->bai, 
 					phyaddr->channel_no, 
-					phyaddr->chip_no,
+					phyaddr->way_no,
 					phyaddr->block_no + plane,
 					phyaddr->page_no,
 					subpage
@@ -1221,7 +1224,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 				bdbm_abm_invalidate_page (
 					p->bai, 
 					me->phyaddr.channel_no, 
-					me->phyaddr.chip_no,
+					me->phyaddr.way_no,
 					me->phyaddr.block_no,
 					me->phyaddr.page_no,
 					me->sp_off
@@ -1229,7 +1232,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 			}
 			me->status = PFTL_PAGE_VALID;
 			me->phyaddr.channel_no = phyaddr->channel_no;
-			me->phyaddr.chip_no = phyaddr->chip_no;
+			me->phyaddr.way_no = phyaddr->way_no;
 			me->phyaddr.block_no = phyaddr->block_no + plane;
 			me->phyaddr.page_no = phyaddr->page_no;
 			me->sp_off = subpage;
@@ -1264,7 +1267,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		 * in that case, we return 'address 0' */
 		if (me->status != PFTL_PAGE_VALID) {
 			phyaddr->channel_no = 0;
-			phyaddr->chip_no = 0;
+			phyaddr->way_no = 0;
 			phyaddr->block_no = 0;
 			phyaddr->page_no = 0;
 			phyaddr->punit_id = 0;
@@ -1272,7 +1275,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 			ret = 1;
 		} else {
 			phyaddr->channel_no = me->phyaddr.channel_no;
-			phyaddr->chip_no = me->phyaddr.chip_no;
+			phyaddr->way_no = me->phyaddr.way_no;
 			phyaddr->block_no = me->phyaddr.block_no;
 			phyaddr->page_no = me->phyaddr.page_no;
 			phyaddr->punit_id = BDBM_GET_PUNIT_ID (bdi, phyaddr);
@@ -1307,7 +1310,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 				bdbm_abm_invalidate_page (
 					p->bai, 
 					me->phyaddr.channel_no, 
-					me->phyaddr.chip_no,
+					me->phyaddr.way_no,
 					me->phyaddr.block_no,
 					me->phyaddr.page_no,
 					me->sp_off
@@ -1351,7 +1354,7 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 	bdbm_abm_block_t* __bdbm_page_ftl_victim_selection (
 		bdbm_drv_info_t* bdi,
 		uint64_t channel_no,
-		uint64_t chip_no)
+		uint64_t unit_no)
 	{
 		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
@@ -1359,8 +1362,8 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		bdbm_abm_block_t* b = NULL;
 		struct list_head* pos = NULL;
 
-		a = p->ac_bab[channel_no*np->nr_chips_per_channel + chip_no];
-		bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) {
+		a = p->ac_bab[channel_no*np->nr_units_per_channel + unit_no];
+		bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, unit_no) {
 			b = bdbm_abm_fetch_dirty_block (pos);
 			if (a != b)
 				break;
@@ -1370,74 +1373,13 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		return b;
 	}
 
-	/* VICTIM SELECTION - Greedy:
-	 * select a dirty block with a small number of valid pages */
-#if 0
-	bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
-		bdbm_drv_info_t* bdi,
-		uint64_t channel_no,
-		uint64_t chip_no)
-	{
-		bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-
-		bdbm_abm_block_t* block;
-		bdbm_abm_block_t* victim = NULL;
-		struct list_head* pos = NULL;
-
-		uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
-		uint64_t plane;
-		uint64_t max_invalid_pages = 0;
-		uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes; 
-
-		bdbm_abm_list_for_each_dirty_block (pos, p->bai, channel_no, chip_no) 
-		{
-			uint64_t invalid_pages = 0;
-			block = bdbm_abm_fetch_dirty_block (pos);
-			
-			for (plane = 0; plane < np->nr_planes; plane++)
-			{
-				if (plane != 0)
-				{
-					pos = pos->next; // next plane;
-				}
-				
-				invalid_pages += block[plane].nr_invalid_subpages;
-			}
-			
-			if (invalid_pages == full_invalid_pages) 
-			{
-				victim = block;
-				break;
-			}
-			
-			if (victim == NULL) 
-			{
-				victim = block;
-				max_invalid_pages = invalid_pages;
-				continue;
-			}
-			
-			if (invalid_pages > max_invalid_pages)
-			{
-				victim = block;
-				max_invalid_pages = invalid_pages;
-			}
-		}
-
-		return victim;
-	}
-#else
-
-
-
 
 /* VICTIM SELECTION - Greedy:
  * select a dirty block with a small number of valid pages */
 bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_drv_info_t* bdi,
 	uint64_t channel_no,
-	uint64_t chip_no)
+	uint64_t unit_no)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
@@ -1445,7 +1387,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_abm_block_t* victim = NULL;
 	struct list_head* pos;
 
-	uint64_t unit = channel_no * np->nr_chips_per_channel + chip_no;
+	uint64_t unit = channel_no * np->nr_units_per_channel + unit_no;
 	uint64_t plane;
 	uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes * p->nr_punits; 
 
@@ -1465,7 +1407,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 
 	if (valid_victim != 0)
 	{	
-		victim = bdbm_abm_get_block(p->bai, channel_no, chip_no, victim_blk_no);
+		victim = bdbm_abm_get_block(p->bai, channel_no, unit_no/np->nr_groups_per_die, victim_blk_no);
 
 		if ((unit + 1) == p->nr_punits)
 		{
@@ -1481,37 +1423,11 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 		uint64_t blk_info;
 		bdbm_abm_block_t* block = bdbm_abm_fetch_dirty_block (pos);
 
-#if 0
-		for (plane = 0; plane < np->nr_planes; plane++)
-		{
-			uint64_t ch, chip;
-			for (ch = 0; ch < np->nr_channels; ch++)
-			{
-				for (chip = 0; chip < np->nr_chips_per_channel; chip++)
-				{	bdbm_abm_block_t* tmp_blk; 
-					tmp_blk = bdbm_abm_get_block(p->bai, ch, chip, block->block_no + plane);
-					invalid_pages += tmp_blk->nr_invalid_subpages;
-				}
-			}
-			
-			if (plane != 0)
-			{
-				pos = pos->next; // next plane;
-			}
-		}
-		
-		if (p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER] != invalid_pages)
-		{
-			bdbm_msg("diff :%lld, %lld, blk :%lld", p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER], invalid_pages, block->block_no);
-		}
-#else
 		invalid_pages = p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER]; 	
 		for (plane = 1; plane < np->nr_planes; plane++)
 		{
 			pos = pos->next; // next plane;
 		}		
-
-#endif
 	
 		blk_info = block->copy_count;
 		if (apVictim[blk_info] == NULL)
@@ -1577,186 +1493,6 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 
 	return victim;
 }
-#endif
-
-
-/* TODO: need to improve it for background gc */
-#if 0
-uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi)
-{
-	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
-	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm;
-	uint64_t nr_gc_blks = 0;
-	uint64_t nr_llm_reqs = 0;
-	uint64_t nr_punits = 0;
-	uint64_t i, j, k;
-	bdbm_stopwatch_t sw;
-
-	nr_punits = np->nr_channels * np->nr_chips_per_channel;
-
-	/* choose uvictim blocks for individual parallel units */
-	bdbm_memset (p->gc_bab, 0x00, sizeof (bdbm_abm_block_t*) * nr_punits);
-	bdbm_stopwatch_start (&sw);
-	for (i = 0, nr_gc_blks = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
-			bdbm_abm_block_t* b; 
-			if ((b = __bdbm_page_ftl_victim_selection_greedy (bdi, i, j))) {
-				p->gc_bab[nr_gc_blks] = b;
-				nr_gc_blks++;
-			}
-		}
-	}
-	if (nr_gc_blks < nr_punits) {
-		/* TODO: we need to implement a load balancing feature to avoid this */
-		/*bdbm_warning ("TODO: this warning will be removed with load-balancing");*/
-		return 0;
-	}
-
-	/* build hlm_req_gc for reads */
-	for (i = 0, nr_llm_reqs = 0; i < nr_gc_blks; i++) {
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		if (b == NULL)
-			break;
-		for (j = 0; j < np->nr_pages_per_block; j++) {
-			bdbm_llm_req_t* r = &hlm_gc->llm_reqs[nr_llm_reqs];
-			int has_valid = 0;
-			/* are there any valid subpages in a block */
-			hlm_reqs_pool_reset_fmain (&r->fmain);
-			hlm_reqs_pool_reset_logaddr (&r->logaddr);
-			for (k = 0; k < np->nr_subpages_per_page; k++) {
-				if (b->pst[j*np->nr_subpages_per_page+k] != BDBM_ABM_SUBPAGE_INVALID) {
-					has_valid = 1;
-					r->logaddr.lpa[k] = -1; /* the subpage contains new data */
-					r->fmain.kp_stt[k] = KP_STT_DATA;
-				} else {
-					r->logaddr.lpa[k] = -1;	/* the subpage contains obsolate data */
-					r->fmain.kp_stt[k] = KP_STT_HOLE;
-				}
-			}
-			/* if it is, selects it as the gc candidates */
-			if (has_valid) {
-				r->req_type = REQTYPE_GC_READ;
-				r->phyaddr.channel_no = b->channel_no;
-				r->phyaddr.chip_no = b->chip_no;
-				r->phyaddr.block_no = b->block_no;
-				r->phyaddr.page_no = j;
-				r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
-				r->ptr_hlm_req = (void*)hlm_gc;
-				r->ret = 0;
-				nr_llm_reqs++;
-			}
-		}
-	}
-
-	/*
-	bdbm_msg ("----------------------------------------------");
-	bdbm_msg ("gc-victim: %llu pages, %llu blocks, %llu us", 
-		nr_llm_reqs, nr_gc_blks, bdbm_stopwatch_get_elapsed_time_us (&sw));
-	*/
-
-	/* wait until Q in llm becomes empty 
-	 * TODO: it might be possible to further optimize this */
-	bdi->ptr_llm_inf->flush (bdi);
-
-	if (nr_llm_reqs == 0) 
-		goto erase_blks;
-
-	/* send read reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_READ;
-	hlm_gc->nr_llm_reqs = nr_llm_reqs;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_llm_reqs; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* build hlm_req_gc for writes */
-	for (i = 0; i < nr_llm_reqs; i++) {
-		bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
-		r->req_type = REQTYPE_GC_WRITE;	/* change to write */
-		for (k = 0; k < np->nr_subpages_per_page; k++) {
-			/* move subpages that contain new data */
-			if (r->fmain.kp_stt[k] == KP_STT_DATA) {
-				r->logaddr.lpa[k] = ((uint64_t*)r->foob.data)[k];
-			} else if (r->fmain.kp_stt[k] == KP_STT_HOLE) {
-				((uint64_t*)r->foob.data)[k] = -1;
-				r->logaddr.lpa[k] = -1;
-			} else {
-				bdbm_bug_on (1);
-			}
-		}
-		if (bdbm_page_ftl_get_free_ppa (bdi, &r->phyaddr) != 0) {
-			bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
-			bdbm_bug_on (1);
-		}
-		if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &r->logaddr, &r->phyaddr) != 0) {
-			bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
-			bdbm_bug_on (1);
-		}
-	}
-
-	/* send write reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_WRITE;
-	hlm_gc->nr_llm_reqs = nr_llm_reqs;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_llm_reqs; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* erase blocks */
-erase_blks:
-	for (i = 0; i < nr_gc_blks; i++) {
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		bdbm_llm_req_t* r = &hlm_gc->llm_reqs[i];
-		r->req_type = REQTYPE_GC_ERASE;
-		r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
-		r->phyaddr.channel_no = b->channel_no;
-		r->phyaddr.chip_no = b->chip_no;
-		r->phyaddr.block_no = b->block_no;
-		r->phyaddr.page_no = 0;
-		r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
-		r->ptr_hlm_req = (void*)hlm_gc;
-		r->ret = 0;
-	}
-
-	/* send erase reqs to llm */
-	hlm_gc->req_type = REQTYPE_GC_ERASE;
-	hlm_gc->nr_llm_reqs = p->nr_punits;
-	atomic64_set (&hlm_gc->nr_llm_reqs_done, 0);
-	bdbm_sema_lock (&hlm_gc->done);
-	for (i = 0; i < nr_gc_blks; i++) {
-		if ((bdi->ptr_llm_inf->make_req (bdi, &hlm_gc->llm_reqs[i])) != 0) {
-			bdbm_error ("llm_make_req failed");
-			bdbm_bug_on (1);
-		}
-	}
-	bdbm_sema_lock (&hlm_gc->done);
-	bdbm_sema_unlock (&hlm_gc->done);
-
-	/* FIXME: what happens if block erasure fails */
-	for (i = 0; i < nr_gc_blks; i++) {
-		uint8_t ret = 0;
-		bdbm_abm_block_t* b = p->gc_bab[i];
-		if (hlm_gc->llm_reqs[i].ret != 0) 
-			ret = 1;	/* bad block */
-		bdbm_abm_erase_block (p->bai, b->channel_no, b->chip_no, b->block_no, ret);
-	}
-
-	return 0;
-}
-#endif
 
 
 void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
@@ -1789,7 +1525,7 @@ void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
 			req->req_type = REQTYPE_GC_ERASE;
 			req->logaddr.lpa[0] = 0x7FFFFFFE - unit; /* lpa is not available now */
 			req->phyaddr.channel_no = src_blk->channel_no;
-			req->phyaddr.chip_no = src_blk->chip_no;
+			req->phyaddr.way_no = src_blk->way_no;
 			req->phyaddr.block_no = src_blk->block_no;
 			req->phyaddr.page_no = 0;
 			req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
@@ -1807,7 +1543,7 @@ void bdbm_page_ftl_restore_srcblk(bdbm_drv_info_t* bdi)
 
 			for (plane = 0; plane < np->nr_planes; plane++)
 			{
-				bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->chip_no, src_blk->block_no + plane, /*is bad*/ 0);
+				bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->way_no, src_blk->block_no + plane, /*is bad*/ 0);
 				p->block_info[src_blk->copy_count]--;
 				
 				// adjust block page offset.
@@ -1837,8 +1573,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 		// 2. Alloc New Src
 		bdbm_bug_on(p->gc_src_blk_offs[0][unit] != np->nr_pages_per_block);
 		
-		ch = unit / np->nr_chips_per_channel;
-		way = unit % np->nr_chips_per_channel; 
+		ch = unit / np->nr_units_per_channel;
+		way = unit % np->nr_units_per_channel; 
 		
 		// choose victim blocks - new src block
 		if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
@@ -1940,7 +1676,7 @@ void check_valid_bitmap(bdbm_abm_block_t* blk)
 
 	if (count != expected_valid_page)
 	{
-		bdbm_msg("VALID_BITMAP_INCONSISTENCY: %lld, %lld, %lld, exp:%lld, real:%lld", blk->channel_no,blk->chip_no, blk->block_no, expected_valid_page, count);
+		bdbm_msg("VALID_BITMAP_INCONSISTENCY: %lld, %lld, %lld, exp:%lld, real:%lld", blk->channel_no, blk->way_no, blk->block_no, expected_valid_page, count);
 	}
 	else
 	{
@@ -1962,12 +1698,12 @@ void __bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi, uint64_t bGC_meta)
 		dst_index = 1;
 	}
 	
-	for (way = 0; way < np->nr_chips_per_channel; way++)
+	for (way = 0; way < np->nr_units_per_channel; way++)
 	{
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{	
 			uint64_t subpage_idx = 0;					
-			unit = ch * np->nr_chips_per_channel + way;
+			unit = ch * np->nr_units_per_channel + way;
 
 			// Write page
 			/* build hlm_req_gc for writes */
@@ -2082,7 +1818,7 @@ void __bdbm_page_ftl_load_meta(bdbm_drv_info_t* bdi)
 			req->dma = np->nr_subpages_per_page; // 0 - DMA bypass, 1 <= DMA
 
 			req->phyaddr.channel_no = src_blk[plane].channel_no;
-			req->phyaddr.chip_no = src_blk[plane].chip_no;
+			req->phyaddr.way_no = src_blk[plane].way_no;
 			req->phyaddr.block_no = src_blk[plane].block_no;
 			req->phyaddr.page_no = np->nr_pages_per_block - 1;
 			req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
@@ -2325,7 +2061,7 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	}
 	
 	req->phyaddr.channel_no = src_blk[plane].channel_no;
-	req->phyaddr.chip_no = src_blk[plane].chip_no;
+	req->phyaddr.way_no = src_blk[plane].way_no;
 	req->phyaddr.block_no = src_blk[plane].block_no;
 	req->phyaddr.page_no = src_page + src_page_offs;
 	req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
@@ -2522,7 +2258,7 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t unit,
 	{
 		req->req_type = REQTYPE_GC_READ;
 		req->phyaddr.channel_no = src_blk[plane].channel_no;
-		req->phyaddr.chip_no = src_blk[plane].chip_no;
+		req->phyaddr.way_no = src_blk[plane].way_no;
 		req->phyaddr.block_no = src_blk[plane].block_no;
 		req->phyaddr.page_no = page + page_offs;
 		req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
@@ -2656,12 +2392,12 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 	uint64_t valid_page_count = hlm_reqs_pool_compaction(hlm_gc_w, hlm_gc, np, p->dst_offset, &(p->partial_head), p->partial_tail, &p->buffered_subpage_count);
 //	bdbm_msg("after head :%lld %lld", p->partial_head, p->buffered_subpage_count);
 	
-	for (way = 0; way < np->nr_chips_per_channel; way++)
+	for (way = 0; way < np->nr_units_per_channel; way++)
 	{
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{	
 			uint64_t subPage_idx = 0;					
-			unit = ch * np->nr_chips_per_channel + way;
+			unit = ch * np->nr_units_per_channel + way;
 
 			// Write page
 			/* build hlm_req_gc for writes */
@@ -2780,7 +2516,7 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 	// copy information from read to write hlm...
 	hlm_reqs_pool_copy (hlm_gc_w, hlm_gc, np, p->dst_offset);
 
-	for (way = 0; way < np->nr_chips_per_channel; way++)
+	for (way = 0; way < np->nr_units_per_channel; way++)
 	{
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{
@@ -2789,7 +2525,7 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 			uint64_t dst_index = 0; // default			
 			uint64_t write_dma = 1; // need to execute DMA to NAND.		
 	
-			unit = ch * np->nr_chips_per_channel + way;
+			unit = ch * np->nr_units_per_channel + way;
 			src_unit = p->src_unit_idx[0][unit];	
 			src_blk = p->gc_src_bab[src_unit];
 
@@ -2824,15 +2560,15 @@ uint32_t bdbm_page_ftl_gc_write_state_default(bdbm_drv_info_t* bdi)
 					req->logaddr.lpa[subPage] = ((uint64_t*)req->foob.data)[subPage];
 
 					bdbm_page_ftl_get_ppa(bdi, req->logaddr.lpa[subPage],&phyaddr,&sp_offs); // previous map check for overwrite during G.C
-					if ( (phyaddr.block_no == src_blk->block_no) && (phyaddr.channel_no == src_blk->channel_no) && (phyaddr.chip_no == src_blk->chip_no))
+					if ( (phyaddr.block_no == src_blk->block_no) && (phyaddr.channel_no == src_blk->channel_no) && (phyaddr.way_no == src_blk->way_no))
 					{
 						write_bypass = 0; // TODO>. VALID check
 					} 
 					else
 					{
 						bdbm_msg (" Host Update during G.C");
-						bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], src_blk->channel_no, src_blk->chip_no, src_blk->block_no, src_blk->info);
-						bdbm_msg (" 			new ch: %lld,%lld,%lld, page: %lld", phyaddr.channel_no, phyaddr.chip_no, phyaddr.block_no, phyaddr.page_no);
+						bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], src_blk->channel_no, src_blk->way_no, src_blk->block_no, src_blk->info);
+						bdbm_msg (" 			new ch: %lld,%lld,%lld, page: %lld", phyaddr.channel_no, phyaddr.way_no, phyaddr.block_no, phyaddr.page_no);
 
 						bdbm_page_ftl_print_blocks(bdi);
 					}
@@ -2928,7 +2664,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 #else
 	if (state == 0) 
 	{
-		if (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_chips_per_ssd)
+		if (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_units_per_ssd)
 		{
 			// write should not be pended too much
 			return 0;
@@ -2937,7 +2673,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 
 	if (state == 1) 
 	{
-		if ((hlm_gc->nr_llm_reqs > atomic64_read(&hlm_gc->nr_llm_reqs_done)) || (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_chips_per_ssd))
+		if ((hlm_gc->nr_llm_reqs > atomic64_read(&hlm_gc->nr_llm_reqs_done)) || (bdi->ptr_llm_inf->get_queuing_count(bdi) >= np->nr_units_per_ssd))
 		{
 			// read should be finished
 			return 1;
@@ -3031,20 +2767,20 @@ uint32_t bdbm_page_ftl_store (bdbm_drv_info_t* bdi, const char* fn)
 		j = p->curr_puid / np->nr_channels;
 
 		/* get the physical offset of the active blocks */
-		b = p->ac_bab[i*np->nr_chips_per_channel + j];
+		b = p->ac_bab[i*np->nr_units_per_channel + j];
 
 		/* invalidate remaining pages */
 		for (k = 0; k < np->nr_subpages_per_page; k++) {
 			bdbm_abm_invalidate_page (
 				p->bai, 
 				b->channel_no, 
-				b->chip_no, 
+				b->way_no, 
 				b->block_no, 
 				p->curr_page_ofs, 
 				k);
 		}
 		bdbm_bug_on (b->channel_no != i);
-		bdbm_bug_on (b->chip_no != j);
+		bdbm_bug_on (b->way_no != j);
 
 		/* go to the next parallel unit */
 		if ((p->curr_puid + 1) == p->nr_punits) {
@@ -3087,10 +2823,10 @@ void __bdbm_page_badblock_scan_eraseblks (
 	/* setup blocks to erase */
 	bdbm_memset (p->gc_src_bab, 0x00, sizeof (bdbm_abm_block_t*) * p->nr_punits);
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_units_per_channel; j++) {
 			bdbm_abm_block_t* b = NULL;
 			bdbm_llm_req_t* r = NULL;
-			uint64_t punit_id = i*np->nr_chips_per_channel+j;
+			uint64_t punit_id = i*np->nr_units_per_channel+j;
 
 			if ((b = bdbm_abm_get_block (p->bai, i, j, block_no)) == NULL) {
 				bdbm_error ("oops! bdbm_abm_get_block failed");
@@ -3102,7 +2838,7 @@ void __bdbm_page_badblock_scan_eraseblks (
 			r->req_type = REQTYPE_GC_ERASE;
 			r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
 			r->phyaddr.channel_no = b->channel_no;
-			r->phyaddr.chip_no = b->chip_no;
+			r->phyaddr.way_no = b->way_no;
 			r->phyaddr.block_no = b->block_no;
 			r->phyaddr.page_no = 0;
 			r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
@@ -3133,7 +2869,7 @@ void __bdbm_page_badblock_scan_eraseblks (
 			ret = 1; /* bad block */
 		}
 
-		bdbm_abm_erase_block (p->bai, b->channel_no, b->chip_no, b->block_no, ret);
+		bdbm_abm_erase_block (p->bai, b->channel_no, b->way_no, b->block_no, ret);
 	}
 
 	/* measure gc elapsed time */
@@ -3148,7 +2884,7 @@ static void __bdbm_page_mark_it_dead (
 	int i, j;
 
 	for (i = 0; i < np->nr_channels; i++) {
-		for (j = 0; j < np->nr_chips_per_channel; j++) {
+		for (j = 0; j < np->nr_units_per_channel; j++) {
 			bdbm_abm_block_t* b = NULL;
 
 			if ((b = bdbm_abm_get_block (p->bai, i, j, block_no)) == NULL) {
@@ -3177,7 +2913,7 @@ uint32_t bdbm_page_badblock_scan (bdbm_drv_info_t* bdi)
 	for (i = 0; i < np->nr_subpages_per_ssd; i++) {
 		me[i].status = PFTL_PAGE_NOT_ALLOCATED;
 		me[i].phyaddr.channel_no = PFTL_PAGE_INVALID_ADDR;
-		me[i].phyaddr.chip_no = PFTL_PAGE_INVALID_ADDR;
+		me[i].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
 		me[i].phyaddr.block_no = PFTL_PAGE_INVALID_ADDR;
 		me[i].phyaddr.page_no = PFTL_PAGE_INVALID_ADDR;
 		me[i].sp_off = -1;
@@ -3185,7 +2921,7 @@ uint32_t bdbm_page_badblock_scan (bdbm_drv_info_t* bdi)
 
 	/* step2: erase all the blocks */
 	bdi->ptr_llm_inf->flush (bdi);
-	for (i = 0; i < np->nr_blocks_per_chip; i++) {
+	for (i = 0; i < np->nr_blocks_per_die; i++) {
 		__bdbm_page_badblock_scan_eraseblks (bdi, i);
 	}
 
@@ -3225,14 +2961,14 @@ uint32_t bdbm_page_badblock_scan (bdbm_drv_info_t* bdi)
 	for (i = 0; i < np->nr_pages_per_ssd; i++) {
 		me[i].status = PFTL_PAGE_NOT_ALLOCATED;
 		me[i].phyaddr.channel_no = PFTL_PAGE_INVALID_ADDR;
-		me[i].phyaddr.chip_no = PFTL_PAGE_INVALID_ADDR;
+		me[i].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
 		me[i].phyaddr.block_no = PFTL_PAGE_INVALID_ADDR;
 		me[i].phyaddr.page_no = PFTL_PAGE_INVALID_ADDR;
 	}
 
 	/* step2: erase all the blocks */
 	bdi->ptr_llm_inf->flush (bdi);
-	for (i = 0; i < np->nr_blocks_per_chip; i++) {
+	for (i = 0; i < np->nr_blocks_per_die; i++) {
 		if (erased_blocks <= p->nr_punits)
 			__bdbm_page_badblock_scan_eraseblks (bdi, i);
 		else 

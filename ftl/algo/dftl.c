@@ -792,10 +792,9 @@ static void __bdbm_dftl_badblock_scan_eraseblks (
 			r->ptr_hlm_req = (void*)hlm_gc;
 			r->phyaddr = &r->phyaddr_w;
 			r->phyaddr->channel_no = b->channel_no;
-			r->phyaddr->chip_no = b->chip_no;
 			r->phyaddr->block_no = b->block_no;
 			r->phyaddr->page_no = 0;
-			r->phyaddr->punit_id = BDBM_GET_PUNIT_ID (bdi, r->phyaddr);
+			r->phyaddr->punit_id = BDBM_GET_PUNIT_ID (bdi, r->phyaddr); 
 			r->ret = 0;
 		}
 	}
@@ -867,7 +866,7 @@ uint32_t bdbm_dftl_badblock_scan (bdbm_drv_info_t* bdi)
 
 	/* step2: erase all the blocks */
 	bdi->ptr_llm_inf->flush (bdi);
-	for (i = 0; i < np->nr_blocks_per_chip; i++) {
+	for (i = 0; i < np->nr_blocks_per_unit; i++) {
 		__bdbm_dftl_badblock_scan_eraseblks (bdi, i);
 	}
 
@@ -907,7 +906,7 @@ uint32_t bdbm_dftl_badblock_scan (bdbm_drv_info_t* bdi)
 
 	/* step2: erase all the blocks */
 	bdi->ptr_llm_inf->flush (bdi);
-	for (i = 0; i < np->nr_blocks_per_chip; i++) {
+	for (i = 0; i < np->nr_blocks_per_unit; i++) {
 		if (erased_blocks <= p->nr_punits)
 			__bdbm_dftl_badblock_scan_eraseblks (bdi, i);
 		else

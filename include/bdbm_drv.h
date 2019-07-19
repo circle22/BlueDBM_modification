@@ -83,9 +83,10 @@ typedef struct _bdbm_drv_info_t bdbm_drv_info_t;
 #define BDBM_FTL_PRIV(bdi) bdi->ptr_ftl_inf->ptr_private
 
 #define BDBM_GET_NR_PUNITS(np) \
-	(np.nr_channels * np.nr_chips_per_channel)
+	(np.nr_channels * np.nr_units_per_channel)
 #define BDBM_GET_PUNIT_ID(bdi,p) \
-	(p->channel_no * bdi->parm_dev.nr_chips_per_channel + p->chip_no)
+	(p->channel_no * bdi->parm_dev.nr_units_per_channel + p->way_no * bdi->parm_dev.nr_groups_per_die + (p->block_no/bdi->parm_dev.nr_planes) % bdi->parm_dev.nr_groups_per_die)
+
 
 /* request types */
 enum BDBM_REQTYPE {
@@ -132,7 +133,7 @@ enum BDBM_REQTYPE {
 typedef struct {
 	uint64_t punit_id;
 	uint64_t channel_no;
-	uint64_t chip_no;
+	uint64_t way_no;
 	uint64_t block_no;
 	uint64_t page_no;
 } bdbm_phyaddr_t;

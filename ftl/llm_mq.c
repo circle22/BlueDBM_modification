@@ -138,7 +138,7 @@ int __llm_mq_thread (void* arg)
 			}
 
 
-//			bdbm_msg("     llm make req : %d, %d, %d, %d, %d,  %d", r->phyaddr.punit_id, r->phyaddr.chip_no, r->phyaddr.block_no, r->phyaddr.page_no, r->logaddr.lpa[0], r->dma);
+//			bdbm_msg("     llm make req : %d, %d, %d, %d, %d,  %d", r->phyaddr.punit_id, r->phyaddr.way_no, r->phyaddr.block_no, r->phyaddr.page_no, r->logaddr.lpa[0], r->dma);
 		}
 
 		cnt++;
@@ -298,7 +298,7 @@ uint32_t llm_mq_is_the_same_phyaddr (bdbm_phyaddr_t* x, bdbm_phyaddr_t* y)
 {
 	return (x->punit_id == y->punit_id &&
 			x->channel_no == y->channel_no &&
-			x->chip_no == y->chip_no &&
+			x->way_no == y->way_no &&
 			x->block_no == y->block_no &&
 			x->page_no == y->page_no ) ? 1: 0;
 }
@@ -362,7 +362,7 @@ uint32_t llm_mq_make_reqs (bdbm_drv_info_t* bdi, bdbm_hlm_req_t* hlm_req)
 					
 					dst_lr->phyaddr.punit_id = cur_lr->phyaddr.punit_id; 
 					dst_lr->phyaddr.channel_no = cur_lr->phyaddr.channel_no;
-					dst_lr->phyaddr.chip_no = cur_lr->phyaddr.chip_no;
+					dst_lr->phyaddr.way_no = cur_lr->phyaddr.way_no;
 					dst_lr->phyaddr.block_no = cur_lr->phyaddr.block_no;
 					dst_lr->phyaddr.page_no = cur_lr->phyaddr.page_no;
 				}

@@ -73,7 +73,7 @@ uint32_t bdbm_no_ftl_get_ppa (bdbm_drv_info_t* bdi, uint64_t lpa, bdbm_phyaddr_t
 {
 	bdbm_device_params_t* np;
 	uint64_t log2_channels;
-	uint64_t log2_chips;
+	uint64_t log2_ways;
 	uint64_t log2_blocks;
 	uint64_t log2_pages;
 
@@ -82,16 +82,16 @@ uint32_t bdbm_no_ftl_get_ppa (bdbm_drv_info_t* bdi, uint64_t lpa, bdbm_phyaddr_t
 	np = BDBM_GET_DEVICE_PARAMS (bdi);
 
 	log2_channels = ilog2 (np->nr_channels);
-	log2_chips = ilog2 (np->nr_chips_per_channel);
-	log2_blocks = ilog2 (np->nr_blocks_per_chip);
+	log2_ways = ilog2 (np->nr_units_per_channel);
+	log2_blocks = ilog2 (np->nr_blocks_per_unit);
 	log2_pages = ilog2 (np->nr_pages_per_block); 
 
-	ppa->channel_no = lpa >> (log2_chips + log2_blocks + log2_pages);
+	ppa->channel_no = lpa >> (log2_ways + log2_blocks + log2_pages);
 	ppa->channel_no = ppa->channel_no & (np->nr_channels - 1);
-	ppa->chip_no = lpa >> (log2_blocks + log2_pages);
-	ppa->chip_no = ppa->chip_no & (np->nr_chips_per_channel - 1);
+	ppa->way_no = lpa >> (log2_blocks + log2_pages);
+	ppa->way_no = ppa->way_no & (np->nr_units_per_channel - 1);
 	ppa->block_no = lpa >> (log2_pages);
-	ppa->block_no = ppa->block_no & (np->nr_blocks_per_chip - 1);
+	ppa->block_no = ppa->block_no & (np->nr_blocks_per_unit - 1);
 	ppa->page_no = lpa & (np->nr_pages_per_block - 1);
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
 

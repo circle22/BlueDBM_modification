@@ -47,11 +47,13 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 	//NAND_PAGE_OOB_SIZE = 64, /* for bdbm hardware */
 	NAND_PAGE_OOB_SIZE = 8*BDBM_MAX_PAGES/PLANE_NUMBER,
 	NR_PAGES_PER_BLOCK = 128, //128, //64, //64,
-	NR_BLOCKS_PER_CHIP = 1024, //1024, //1600, //800,//1600,//1600, //2300 , // 192/BDBM_MAX_PAGES,
-	//NR_BLOCKS_PER_CHIP = 8/BDBM_MAX_PAGES,
-	NR_CHIPS_PER_CHANNEL = 16,
-	//NR_CHIPS_PER_CHANNEL =:w 8,
+//	NR_BLOCKS_PER_CHIP = 1024, //1024, //1600, //800,//1600,//1600, //2300 , // 192/BDBM_MAX_PAGES,
+	NR_BLOCKS_PER_DIE = 1024, 
 	NR_CHANNELS = 1,
+//	NR_CHIPS_PER_CHANNEL = 16,
+	NR_DIES_PER_CHANNEL = 2,
+	NR_GROUPS_PER_DIE = 4,
+	
 	NAND_HOST_BUS_TRANS_TIME_US = 0,	/* assume to be 0 */
 	NAND_CHIP_BUS_TRANS_TIME_US = 100,	/* 100us */
 	NAND_PAGE_PROG_TIME_US = 500,		/* 1.3ms */	
@@ -60,8 +62,9 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 };
 
 int _param_nr_channels 				= NR_CHANNELS;
-int _param_nr_chips_per_channel		= NR_CHIPS_PER_CHANNEL;
-int _param_nr_blocks_per_chip 		= NR_BLOCKS_PER_CHIP;
+int _param_nr_units_per_channel		= NR_DIES_PER_CHANNEL * NR_GROUPS_PER_DIE; //NR_CHIPS_PER_CHANNEL;
+int _param_nr_groups_per_die		= NR_GROUPS_PER_DIE;
+int _param_nr_blocks_per_unit 		= NR_BLOCKS_PER_DIE / NR_GROUPS_PER_DIE;
 int _param_nr_pages_per_block 		= NR_PAGES_PER_BLOCK;
 int _param_page_main_size 			= NAND_PAGE_SIZE;
 int _param_page_oob_size 			= NAND_PAGE_OOB_SIZE;
@@ -90,8 +93,8 @@ int _param_device_type = DEVICE_TYPE_NOT_SPECIFIED;
 
 #if defined (KERNEL_MODE)
 module_param (_param_nr_channels, int, 0000);
-module_param (_param_nr_chips_per_channel, int, 0000);
-module_param (_param_nr_blocks_per_chip, int, 0000);
+module_param (_param_nr_units_per_channel, int, 0000);
+module_param (_param_nr_blocks_per_unit, int, 0000);
 module_param (_param_nr_pages_per_block, int, 0000);
 module_param (_param_page_main_size, int, 0000);
 module_param (_param_page_oob_size, int, 0000);
@@ -103,8 +106,8 @@ module_param (_param_block_erase_time_us, int, 0000);
 module_param (_param_device_type, int, 0000);
 
 MODULE_PARM_DESC (_param_nr_channels, "# of channels");
-MODULE_PARM_DESC (_param_nr_chips_per_channel, "# of chips per channel");
-MODULE_PARM_DESC (_param_nr_blocks_per_chip, "# of blocks per chip");
+MODULE_PARM_DESC (_param_nr_units_per_channel, "# of units per channel");
+MODULE_PARM_DESC (_param_nr_blocks_per_unit, "# of blocks per unit");
 MODULE_PARM_DESC (_param_nr_pages_per_block, "# of pages per block");
 MODULE_PARM_DESC (_param_page_main_size, "page main size");
 MODULE_PARM_DESC (_param_page_oob_size, "page oob size");
@@ -123,9 +126,12 @@ bdbm_device_params_t get_default_device_params (void)
 
 	/* user-specified parameters */
 	p.nr_channels = _param_nr_channels;
- 	p.nr_chips_per_channel = _param_nr_chips_per_channel;
+	p.nr_ways = _param_nr_units_per_channel/_param_nr_groups_per_die;
+ 	p.nr_units_per_channel = _param_nr_units_per_channel;
 	p.nr_planes = PLANE_NUMBER;
- 	p.nr_blocks_per_chip = _param_nr_blocks_per_chip;
+	p.nr_groups_per_die = _param_nr_groups_per_die;
+ 	p.nr_blocks_per_unit = _param_nr_blocks_per_unit;
+	p.nr_blocks_per_die  = _param_nr_blocks_per_unit * _param_nr_groups_per_die;
  	p.nr_pages_per_block = _param_nr_pages_per_block;
  	p.page_main_size = _param_page_main_size;
  	p.page_oob_size = _param_page_oob_size;
@@ -232,9 +238,9 @@ bdbm_device_params_t get_default_device_params (void)
  	p.block_erase_time_us = _param_block_erase_time_us;
  
  	/* other parameters derived from user parameters */
- 	p.nr_blocks_per_channel = p.nr_chips_per_channel * p.nr_blocks_per_chip;
-	p.nr_blocks_per_ssd = p.nr_channels * p.nr_chips_per_channel * p.nr_blocks_per_chip;
-	p.nr_chips_per_ssd = p.nr_channels * p.nr_chips_per_channel;
+ 	p.nr_blocks_per_channel = p.nr_units_per_channel * p.nr_blocks_per_unit;
+	p.nr_blocks_per_ssd = p.nr_channels * p.nr_units_per_channel * p.nr_blocks_per_unit;
+	p.nr_units_per_ssd = p.nr_channels * p.nr_units_per_channel;
 	p.nr_pages_per_ssd = p.nr_pages_per_block * p.nr_blocks_per_ssd;
 
 	p.nr_subpages_per_page = (p.page_main_size / KERNEL_PAGE_SIZE);	
@@ -245,8 +251,8 @@ bdbm_device_params_t get_default_device_params (void)
 
 	p.device_capacity_in_byte = 0;
 	p.device_capacity_in_byte += p.nr_channels;
-	p.device_capacity_in_byte *= p.nr_chips_per_channel;
-	p.device_capacity_in_byte *= p.nr_blocks_per_chip;
+	p.device_capacity_in_byte *= p.nr_units_per_channel;
+	p.device_capacity_in_byte *= p.nr_blocks_per_unit;
 	p.device_capacity_in_byte *= p.nr_pages_per_block;
 	p.device_capacity_in_byte *= p.page_main_size;
 
@@ -259,9 +265,9 @@ void display_device_params (bdbm_device_params_t* p)
     bdbm_msg ("DEVICE PARAMETERS");
     bdbm_msg ("=====================================================================");
     bdbm_msg ("# of channels = %llu", p->nr_channels);
-    bdbm_msg ("# of chips per channel = %llu", p->nr_chips_per_channel);
+    bdbm_msg ("# of units per channel = %llu", p->nr_units_per_channel);
     bdbm_msg ("# of planes per die = %llu", p->nr_planes);
-    bdbm_msg ("# of blocks per chip = %llu", p->nr_blocks_per_chip);
+    bdbm_msg ("# of blocks per unit = %llu", p->nr_blocks_per_unit);
     bdbm_msg ("# of pages per block = %llu", p->nr_pages_per_block);
 	bdbm_msg ("# of subpages per page = %llu", p->nr_subpages_per_page);
     bdbm_msg ("page main size  = %llu bytes", p->page_main_size);

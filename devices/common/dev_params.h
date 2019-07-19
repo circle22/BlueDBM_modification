@@ -26,8 +26,8 @@ THE SOFTWARE.
 #define _BLUEDBM_DM_PARAMS_H
 
 extern int _param_nr_channels;
-extern int _param_nr_chips_per_channel;
-extern int _param_nr_blocks_per_chip;
+extern int _param_nr_units_per_channel;
+extern int _param_nr_blocks_per_unit;
 extern int _param_nr_pages_per_block;
 extern int _param_page_main_size; 
 extern int _param_page_oob_size;

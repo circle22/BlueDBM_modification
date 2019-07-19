@@ -131,7 +131,7 @@ uint32_t hlm_nobuf_create (bdbm_drv_info_t* bdi)
 	p->flush_lr_idx = 0;	
 	p->queuing_lr_count = 0;
 
-	p->flush_threshold = bdi->parm_dev.nr_channels * bdi->parm_dev.nr_chips_per_channel;
+	p->flush_threshold = bdi->parm_dev.nr_channels * bdi->parm_dev.nr_units_per_channel;
 	p->flush_lpn_count = p->flush_threshold * bdi->parm_dev.nr_planes * bdi->parm_dev.nr_subpages_per_page;
 	p->queuing_threshold = BUFFERING_LLM_COUNT; // ch x bank x 4	
 	
@@ -267,8 +267,7 @@ int __hlm_flush_buffer(bdbm_drv_info_t* bdi)
 		bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
 
 		if ( (llm_req->phyaddr.page_no == np->nr_pages_per_block - 2) &&
-			  (llm_req->phyaddr.channel_no == np->nr_channels - 1) &&
-			  (llm_req->phyaddr.chip_no == np->nr_chips_per_channel - 1))
+ 			 (llm_req->phyaddr.punit_id == np->nr_units_per_ssd - 1))
 		{
 			// need to flush copyback meta.
 			ftl->flush_meta(bdi);		
@@ -721,7 +720,7 @@ uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
 	if (p->queuing_lr_count >= p->flush_threshold)
 	{
 		//	depend on pending count.
-		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_chips_per_ssd) &&
+		if ((bdi->ptr_llm_inf->get_queuing_count(bdi) < np->nr_units_per_ssd) &&
 #ifdef FLOW_CTRL			
 			(ftl->get_token(bdi) >= p->flush_lpn_count))
 #else

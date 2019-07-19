@@ -136,9 +136,12 @@ typedef struct {
 
 typedef struct {
 	uint64_t nr_channels;
-	uint64_t nr_chips_per_channel;
+	uint64_t nr_ways;
+	uint64_t nr_units_per_channel;
 	uint64_t nr_planes;
-	uint64_t nr_blocks_per_chip;
+	uint64_t nr_groups_per_die;
+	uint64_t nr_blocks_per_unit;
+	uint64_t nr_blocks_per_die;
 	uint64_t nr_pages_per_block;
 	uint64_t page_main_size;
 	uint64_t page_oob_size;
@@ -160,7 +163,7 @@ typedef struct {
 
 	uint64_t nr_blocks_per_channel;
 	uint64_t nr_blocks_per_ssd;
-	uint64_t nr_chips_per_ssd;
+	uint64_t nr_units_per_ssd;
 	uint64_t nr_pages_per_ssd;
 	uint64_t nr_subpages_per_block;
 	uint64_t nr_subpages_per_page;

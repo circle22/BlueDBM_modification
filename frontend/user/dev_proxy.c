@@ -90,13 +90,13 @@ uint32_t dm_proxy_probe (
 		return 1;
 	}
 
-	p->punit = params->nr_chips_per_channel * params->nr_channels;
+	p->punit = params->nr_units_per_channel * params->nr_channels;
 
 	bdbm_msg ("--------------------------------");
 	bdbm_msg ("probe (): ret = %d", ret);
 	bdbm_msg ("nr_channels: %u", (uint32_t)params->nr_channels);
-	bdbm_msg ("nr_chips_per_channel: %u", (uint32_t)params->nr_chips_per_channel);
-	bdbm_msg ("nr_blocks_per_chip: %u", (uint32_t)params->nr_blocks_per_chip);
+	bdbm_msg ("nr_units_per_channel: %u", (uint32_t)params->nr_units_per_channel);
+	bdbm_msg ("nr_blocks_per_unit: %u", (uint32_t)params->nr_blocks_per_unit);
 	bdbm_msg ("nr_pages_per_block: %u", (uint32_t)params->nr_pages_per_block);
 	bdbm_msg ("page_main_size: %u", (uint32_t)params->page_main_size);
 	bdbm_msg ("page_oob_size: %u", (uint32_t)params->page_oob_size);

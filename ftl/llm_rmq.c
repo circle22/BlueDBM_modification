@@ -356,7 +356,7 @@ void llm_rmq_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 		if (r->req_type == REQTYPE_GC_WRITE && (int64_t)r->lpa == -2LL) {
 			bdbm_msg ("done - writing mapping pages: llu phy: %lld %lld %lld %lld, oob: %lld %lld", 
 				r->phyaddr->channel_no, 
-				r->phyaddr->chip_no,
+				r->phyaddr->way_no,
 				r->phyaddr->block_no,
 				r->phyaddr->page_no,
 				((uint64_t*)r->ptr_oob)[0],

@@ -732,7 +732,7 @@ void hlm_reqs_pool_copy(
 	uint64_t dst_offset)
 {
 	uint64_t subPage, unit;
-	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	uint64_t nr_punits = np->nr_units_per_channel * np->nr_channels;
 
 	bdbm_llm_req_t* dst_req;
 	bdbm_llm_req_t* src_req;
@@ -773,7 +773,7 @@ uint64_t hlm_reqs_pool_compaction(
 	uint64_t* pCount)
 {
 	uint64_t subpage, unit;
-	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	uint64_t nr_punits = np->nr_units_per_channel * np->nr_channels;
 
 	uint64_t src_subpage = 0;
 	uint64_t plane;
@@ -894,7 +894,7 @@ void hlm_reqs_pool_write_compaction (
 	bdbm_device_params_t* np)
 {
 	uint64_t dst_loop = 0, dst_kp = 0, src_kp = 0, i = 0;
-	uint64_t nr_punits = np->nr_chips_per_channel * np->nr_channels;
+	uint64_t nr_punits = np->nr_units_per_channel * np->nr_channels;
 
 	bdbm_llm_req_t* dst_r = NULL;
 	bdbm_llm_req_t* src_r = NULL;

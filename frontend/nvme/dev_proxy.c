@@ -77,8 +77,8 @@ uint32_t dm_proxy_probe (
 	bdbm_msg ("--------------------------------");
 	bdbm_msg ("probe (): ret = %d", ret);
 	bdbm_msg ("nr_channels: %u", (uint32_t)params->nr_channels);
-	bdbm_msg ("nr_chips_per_channel: %u", (uint32_t)params->nr_chips_per_channel);
-	bdbm_msg ("nr_blocks_per_chip: %u", (uint32_t)params->nr_blocks_per_chip);
+	bdbm_msg ("nr_units_per_channel: %u", (uint32_t)params->nr_units_per_channel);
+	bdbm_msg ("nr_blocks_per_unit: %u", (uint32_t)params->nr_blocks_per_unit);
 	bdbm_msg ("nr_pages_per_block: %u", (uint32_t)params->nr_pages_per_block);
 	bdbm_msg ("page_main_size: %u", (uint32_t)params->page_main_size);
 	bdbm_msg ("page_oob_size: %u", (uint32_t)params->page_oob_size);
@@ -110,14 +110,14 @@ uint32_t dm_proxy_make_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* r)
 		bdbm_msg ("dm_proxy_make_req: \t[R] logical:%llu <= physical:%llu %llu %llu %llu",
 			r->logaddr.lpa[0], 
 			r->phyaddr.channel_no, 
-			r->phyaddr.chip_no, 
+			r->phyaddr.way_no, 
 			r->phyaddr.block_no, 
 			r->phyaddr.page_no);
 	} else if (bdbm_is_write (r->req_type)) {
 		bdbm_msg ("dm_proxy_make_req: \t[W] logical:%llu => physical:%llu %llu %llu %llu",
 			r->logaddr.lpa[0], 
 			r->phyaddr.channel_no, 
-			r->phyaddr.chip_no, 
+			r->phyaddr.way_no, 
 			r->phyaddr.block_no, 
 			r->phyaddr.page_no);
 	} else {

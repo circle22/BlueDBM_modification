@@ -209,7 +209,7 @@ static int dm_stub_open (bdbm_dm_stub_t* s)
 	} 
 
 	/* initialize internal variables */
-	s->punit = bdi->parm_dev.nr_chips_per_channel * bdi->parm_dev.nr_channels;
+	s->punit = bdi->parm_dev.nr_units_per_channel * bdi->parm_dev.nr_channels;
 	s->mmap_shared_size = KPAGE_SIZE + PAGE_ALIGN (
 		s->punit * (bdi->parm_dev.page_main_size + bdi->parm_dev.page_oob_size));
 

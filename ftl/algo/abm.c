@@ -48,19 +48,25 @@ uint64_t __get_channel_ofs (bdbm_device_params_t* np, uint64_t blk_idx) {
 }
 
 static inline 
-uint64_t __get_chip_ofs (bdbm_device_params_t* np, uint64_t blk_idx) {
-	return ((blk_idx % np->nr_blocks_per_channel) / np->nr_blocks_per_chip);
+uint64_t __get_way_ofs (bdbm_device_params_t* np, uint64_t blk_idx) {
+	return ((blk_idx % np->nr_blocks_per_channel) / np->nr_blocks_per_die);
+}
+
+static inline 
+uint64_t __get_unit_ofs (bdbm_device_params_t* np, uint64_t blk_idx) {
+	uint64_t way = __get_way_ofs(np, blk_idx);	
+	return __get_way_ofs(np, blk_idx) * np->nr_groups_per_die + (blk_idx/np->nr_planes) % np->nr_groups_per_die;
 }
 
 static inline 
 uint64_t __get_block_ofs (bdbm_device_params_t* np, uint64_t blk_idx) {
-	return (blk_idx % np->nr_blocks_per_chip);
+	return (blk_idx % np->nr_blocks_per_die);
 }
 
 static inline
-uint64_t __get_block_idx (bdbm_device_params_t* np, uint64_t channel_no, uint64_t chip_no, uint64_t block_no) {
+uint64_t __get_block_idx (bdbm_device_params_t* np, uint64_t channel_no, uint64_t way_no, uint64_t block_no) {
 	return channel_no * np->nr_blocks_per_channel + 
-		chip_no * np->nr_blocks_per_chip + 
+		way_no * np->nr_blocks_per_die + 
 		block_no;
 }
 
@@ -150,10 +156,13 @@ bdbm_abm_info_t* bdbm_abm_create (
 		bai->blocks[loop].info = 0;
 		bai->blocks[loop].update_time = 0;
 		bai->blocks[loop].channel_no = __get_channel_ofs (np, loop);
-		bai->blocks[loop].chip_no = __get_chip_ofs (np, loop);
+		bai->blocks[loop].way_no = __get_way_ofs(np, loop); 
+		bai->blocks[loop].unit_no = __get_unit_ofs(np, loop); 
 		bai->blocks[loop].block_no = __get_block_ofs (np, loop);
 		bai->blocks[loop].erase_count = 0;
 		bai->blocks[loop].pst = NULL;
+
+		bdbm_msg("ch %d, way %d, unit %d, blk %d, loop %d",  bai->blocks[loop].channel_no, bai->blocks[loop].way_no, bai->blocks[loop].unit_no, bai->blocks[loop].block_no, loop);
 #ifndef PER_PAGE_COPYBACK_MANAGEMENT
 		bai->blocks[loop].nr_invalid_subpages = 0;
 #else
@@ -185,13 +194,13 @@ bdbm_abm_info_t* bdbm_abm_create (
 	for (loop = 0; loop < np->nr_channels; loop++) {
 		uint64_t subloop = 0;
 		bai->list_head_free[loop] = (struct list_head*)bdbm_zmalloc 
-			(sizeof (struct list_head) * np->nr_chips_per_channel);
+			(sizeof (struct list_head) * np->nr_units_per_channel);
 		bai->list_head_clean[loop] = (struct list_head*)bdbm_zmalloc 
-			(sizeof (struct list_head) * np->nr_chips_per_channel);
+			(sizeof (struct list_head) * np->nr_units_per_channel);
 		bai->list_head_dirty[loop] = (struct list_head*)bdbm_zmalloc 
-			(sizeof (struct list_head) * np->nr_chips_per_channel);
+			(sizeof (struct list_head) * np->nr_units_per_channel);
 		bai->list_head_bad[loop] = (struct list_head*)bdbm_zmalloc 
-			(sizeof (struct list_head) * np->nr_chips_per_channel);
+			(sizeof (struct list_head) * np->nr_units_per_channel);
 
 		if (bai->list_head_free[loop] == NULL || 
 			bai->list_head_clean[loop] == NULL || 
@@ -200,20 +209,19 @@ bdbm_abm_info_t* bdbm_abm_create (
 			bdbm_error ("bdbm_zmalloc failed");
 			goto fail;
 		}
-		for (subloop = 0; subloop < np->nr_chips_per_channel; subloop++) {
+		for (subloop = 0; subloop < np->nr_units_per_channel; subloop++) {
 			INIT_LIST_HEAD (&bai->list_head_free[loop][subloop]);
 			INIT_LIST_HEAD (&bai->list_head_clean[loop][subloop]);
 			INIT_LIST_HEAD (&bai->list_head_dirty[loop][subloop]);
 			INIT_LIST_HEAD (&bai->list_head_bad[loop][subloop]);
 
-			bai->anr_free_blks[loop][subloop] = np->nr_blocks_per_chip;
+			bai->anr_free_blks[loop][subloop] = np->nr_blocks_per_unit;
 		}
 	}
 
 	/* add abm blocks into corresponding lists */
 	for (loop = 0; loop < np->nr_blocks_per_ssd; loop++) {
-		list_add_tail (&(bai->blocks[loop].list), 
-			&(bai->list_head_free[bai->blocks[loop].channel_no][bai->blocks[loop].chip_no]));
+		list_add_tail (&(bai->blocks[loop].list), &(bai->list_head_free[bai->blocks[loop].channel_no][bai->blocks[loop].unit_no]));
 	}
 
 	/* initialize # of blocks according to their types */
@@ -224,9 +232,9 @@ bdbm_abm_info_t* bdbm_abm_create (
 	bai->nr_dirty_blks = 0;
 	bai->nr_bad_blks = 0;
 
-	bai->nr_gc_ondemand_threshold = np->nr_channels * np->nr_chips_per_channel * np->nr_planes* GC_ONDEMAND_THRESHOLD;
-	bai->nr_gc_background_threshold = np->nr_channels * np->nr_chips_per_channel * np->nr_planes* GC_BACKGROUND_THRESHOLD;
-	bai->pnr_blk_invalid = (uint32_t*)bdbm_zmalloc (sizeof (uint32_t) * np->nr_blocks_per_chip);
+	bai->nr_gc_ondemand_threshold = np->nr_channels * np->nr_units_per_channel * np->nr_planes* GC_ONDEMAND_THRESHOLD;
+	bai->nr_gc_background_threshold = np->nr_channels * np->nr_units_per_channel * np->nr_planes* GC_BACKGROUND_THRESHOLD;
+	bai->pnr_blk_invalid = (uint32_t*)bdbm_zmalloc (sizeof (uint32_t) * np->nr_blocks_per_die);
 
 	/* done */
 	return bai;
@@ -276,11 +284,11 @@ void bdbm_abm_destroy (bdbm_abm_info_t* bai)
 bdbm_abm_block_t* bdbm_abm_get_block (
 	bdbm_abm_info_t* bai,
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no) 
 {
 	uint64_t blk_idx = 
-		__get_block_idx (bai->np, channel_no, chip_no, block_no);
+		__get_block_idx (bai->np, channel_no, way_no, block_no);
 
 	/* see if blk_idx is correct or not */
 	if (blk_idx >= bai->np->nr_blocks_per_ssd) {
@@ -297,13 +305,13 @@ bdbm_abm_block_t* bdbm_abm_get_block (
 bdbm_abm_block_t* bdbm_abm_get_free_block_prepare (
 	bdbm_abm_info_t* bai,
 	uint64_t channel_no,
-	uint64_t chip_no) 
+	uint64_t unit_no) 
 {
 	struct list_head* pos = NULL;
 	bdbm_abm_block_t* blk = NULL;
 	uint32_t cnt = 0;
 
-	list_for_each (pos, &(bai->list_head_free[channel_no][chip_no])) {
+	list_for_each (pos, &(bai->list_head_free[channel_no][unit_no])) {
 		cnt++;
 		blk = list_entry (pos, bdbm_abm_block_t, list);
 		if (blk->status == BDBM_ABM_BLK_FREE) {
@@ -319,7 +327,7 @@ bdbm_abm_block_t* bdbm_abm_get_free_block_prepare (
 			bai->nr_free_blks--;
 			bai->nr_free_blks_prepared++;
 
-			bai->anr_free_blks[channel_no][chip_no]--;
+			bai->anr_free_blks[channel_no][unit_no]--;
 
 			break;
 		}
@@ -349,7 +357,7 @@ void bdbm_abm_get_free_block_rollback (
 	bai->nr_free_blks_prepared--;
 	bai->nr_free_blks++;
 
-	bai->anr_free_blks[blk->channel_no][blk->chip_no]++;
+	bai->anr_free_blks[blk->channel_no][blk->unit_no]++;
 }
 
 void bdbm_abm_get_free_block_commit (
@@ -364,7 +372,7 @@ void bdbm_abm_get_free_block_commit (
 
 	/* move it to 'clean_list' */
 	list_del (&blk->list);
-	list_add_tail (&blk->list, &(bai->list_head_clean[blk->channel_no][blk->chip_no]));
+	list_add_tail (&blk->list, &(bai->list_head_clean[blk->channel_no][blk->unit_no]));
 
 	/* check some error cases */
 	bdbm_bug_on (bai->nr_free_blks_prepared == 0);
@@ -378,17 +386,17 @@ void bdbm_abm_get_free_block_commit (
 void bdbm_abm_erase_block (
 	bdbm_abm_info_t* bai,
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no,
 	uint8_t is_bad)
 {
 	bdbm_abm_block_t* blk = NULL;
 	uint64_t blk_idx = 
-		__get_block_idx (bai->np, channel_no, chip_no, block_no);
-
+		__get_block_idx (bai->np, channel_no, way_no, block_no);
+	
 	/* see if blk_idx is correct or not */
 	if (blk_idx >= bai->np->nr_blocks_per_ssd) {
-		bdbm_msg ("%llu %llu %llu", channel_no, chip_no, block_no);
+		bdbm_msg ("%llu %llu %llu", channel_no, way_no, block_no);
 		bdbm_error ("blk_idx (%llu) is larger than # of blocks in SSD (%llu)",
 			blk_idx, bai->np->nr_blocks_per_ssd);
 		return;
@@ -396,10 +404,10 @@ void bdbm_abm_erase_block (
 		blk = &bai->blocks[blk_idx];
 	}
 
-	if (blk->channel_no != channel_no || blk->chip_no != chip_no || blk->block_no != block_no) {
+	if (blk->channel_no != channel_no || blk->way_no != way_no || blk->block_no != block_no) {
 		bdbm_error ("wrong block is chosen (%llu,%llu,%llu) != (%llu,%llu,%llu)",
-			blk->channel_no, blk->chip_no, blk->block_no,
-			channel_no, chip_no, block_no);
+			blk->channel_no, blk->way_no, blk->block_no,
+			channel_no, way_no, block_no);
 		return;
 	}
 
@@ -416,7 +424,7 @@ void bdbm_abm_erase_block (
 	} else if (blk->status == BDBM_ABM_BLK_FREE) {
 		bdbm_bug_on (bai->nr_free_blks == 0);
 		bai->nr_free_blks--;
-		bai->anr_free_blks[channel_no][chip_no]--;
+		bai->anr_free_blks[channel_no][blk->unit_no]--;
 	} else if (blk->status == BDBM_ABM_BLK_FREE_PREPARE) {
 		bdbm_bug_on (bai->nr_free_blks_prepared == 0);
 		bai->nr_free_blks_prepared--;
@@ -430,13 +438,13 @@ void bdbm_abm_erase_block (
 	if (is_bad == 1) {
 		/* move it to 'bad_list' */
 		list_del (&blk->list);
-		list_add_tail (&blk->list, &(bai->list_head_bad[blk->channel_no][blk->chip_no]));
+		list_add_tail (&blk->list, &(bai->list_head_bad[blk->channel_no][blk->unit_no]));
 		bai->nr_bad_blks++;
 		blk->status = BDBM_ABM_BLK_BAD;	/* mark it bad */
 
 		bdbm_msg ("[BAD-BLOCK - MARKED] b:%llu c:%llu b:%llu p/e:%u", 
 			blk->channel_no, 
-			blk->chip_no, 
+			blk->way_no, 
 			blk->block_no, 
 			blk->erase_count);
 
@@ -446,9 +454,9 @@ void bdbm_abm_erase_block (
 	} else {
 		/* move it to 'free_list' */
 		list_del (&blk->list);
-		list_add_tail (&blk->list, &(bai->list_head_free[blk->channel_no][blk->chip_no]));
+		list_add_tail (&blk->list, &(bai->list_head_free[blk->channel_no][blk->unit_no]));
 		bai->nr_free_blks++;
-		bai->anr_free_blks[channel_no][chip_no]++;
+		bai->anr_free_blks[channel_no][blk->unit_no]++;
 		blk->status = BDBM_ABM_BLK_FREE;
 	}
 
@@ -462,7 +470,7 @@ void bdbm_abm_erase_block (
 	}
 
 #ifdef PER_PAGE_COPYBACK_MANAGEMENT
-	if ((channel_no == 0) && (chip_no == 0))
+	if ((channel_no == 0) && (way_no == 0))
 	{
 	//	bdbm_msg ("block erase test 1 : invalid : %lld, valid bitmap %llx, %llx, %llx, %llx", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
 	}
@@ -473,13 +481,13 @@ void bdbm_abm_erase_block (
 	uint8_t* pst = (uint8_t*)blk->pst + (bai->np->nr_pages_per_block - meta_page_count);
 	bdbm_memset (pst, 0x0, meta_page_count); // clear validbitmap.
 
-	if ((channel_no == 0) && (chip_no == 0))
+	if ((channel_no == 0) && (way_no == 0))
 	{
 	//	bdbm_msg ("block erase test 2 : invalid : %lld, valid bitmap %llx, %llx, %llx, %llx", blk->nr_invalid_subpages, blk->pst[4],blk->pst[5], blk->pst[6], blk->pst[7]);
 	}
 #endif
 
-	if ((channel_no == 0) && (chip_no == 0))
+	if ((channel_no == 0) && (way_no == 0))
 	{
 		bai->pnr_blk_invalid[block_no/PLANE_NUMBER] = 0;
 	}
@@ -488,16 +496,16 @@ void bdbm_abm_erase_block (
 void bdbm_abm_set_to_dirty_block (
 	bdbm_abm_info_t* bai,
 	uint64_t channel_no, 
-	uint64_t chip_no, 
+	uint64_t way_no, 
 	uint64_t block_no)
 {
 	bdbm_abm_block_t* blk = NULL;
 	uint64_t blk_idx = 
-		__get_block_idx (bai->np, channel_no, chip_no, block_no);
+		__get_block_idx (bai->np, channel_no, way_no, block_no);
 
 	/* see if blk_idx is correct or not */
 	if (blk_idx >= bai->np->nr_blocks_per_ssd) {
-		bdbm_msg ("%llu %llu %llu", channel_no, chip_no, block_no);
+		bdbm_msg ("%llu %llu %llu", channel_no, way_no, block_no);
 		bdbm_error ("blk_idx (%llu) is larger than # of blocks in SSD (%llu)",
 			blk_idx, bai->np->nr_blocks_per_ssd);
 		return;
@@ -505,10 +513,10 @@ void bdbm_abm_set_to_dirty_block (
 		blk = &bai->blocks[blk_idx];
 	}
 
-	if (blk->channel_no != channel_no || blk->chip_no != chip_no || blk->block_no != block_no) {
+	if (blk->channel_no != channel_no || blk->way_no != way_no || blk->block_no != block_no) {
 		bdbm_error ("wrong block is chosen (%llu,%llu,%llu) != (%llu,%llu,%llu)",
-			blk->channel_no, blk->chip_no, blk->block_no,
-			channel_no, chip_no, block_no);
+			blk->channel_no, blk->way_no, blk->block_no,
+			channel_no, way_no, block_no);
 		return;
 	}
 
@@ -537,7 +545,7 @@ void bdbm_abm_set_to_dirty_block (
 
 	/* move it to 'free_list' */
 	list_del (&blk->list);
-	list_add_tail (&blk->list, &(bai->list_head_dirty[blk->channel_no][blk->chip_no]));
+	list_add_tail (&blk->list, &(bai->list_head_dirty[blk->channel_no][blk->unit_no]));
 	bai->nr_dirty_blks++;
 	blk->status = BDBM_ABM_BLK_DIRTY;
 
@@ -557,24 +565,24 @@ void bdbm_abm_set_to_dirty_block (
 void bdbm_abm_make_dirty_blk (
 	bdbm_abm_info_t* bai, 
 	uint64_t channel_no, 
-	uint64_t chip_no, 
+	uint64_t way_no, 
 	uint64_t block_no)
 {
 	bdbm_abm_block_t* b = NULL;
 
-	b = bdbm_abm_get_block (bai, channel_no, chip_no, block_no);
+	b = bdbm_abm_get_block (bai, channel_no, way_no, block_no);
 
 	/* is the block clean? */
 	if (b->status != BDBM_ABM_BLK_CLEAN) {
 		bdbm_msg ("b->status: %u (%llu %llu %llu)", 
-			b->status, channel_no, chip_no, block_no);
+			b->status, channel_no, way_no, block_no);
 		bdbm_bug_on (b->status != BDBM_ABM_BLK_CLEAN);
 	}
 
 	/* if so, its status is changed and then moved to a dirty list */
 	b->status = BDBM_ABM_BLK_DIRTY;
 	list_del (&b->list);
-	list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->chip_no]));
+	list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->unit_no]));
 
 	if (bai->nr_clean_blks > 0) {
 		bdbm_bug_on (bai->nr_clean_blks == 0);
@@ -588,7 +596,7 @@ void bdbm_abm_make_dirty_blk (
 void bdbm_abm_invalidate_page (
 	bdbm_abm_info_t* bai, 
 	uint64_t channel_no, 
-	uint64_t chip_no, 
+	uint64_t way_no, 
 	uint64_t block_no, 
 	uint64_t page_no,
 	uint64_t subpage_no)
@@ -598,14 +606,14 @@ void bdbm_abm_invalidate_page (
 	uint64_t pst_off = 0;
 	uint8_t* bit_map;
 
-	//bdbm_msg("abm_invalidate: %lld,%lld,%lld,%lld,%lld", channel_no, chip_no, block_no, page_no, subpage_no);
+	//bdbm_msg("abm_invalidate: %lld,%lld,%lld,%lld,%lld", channel_no, way_no, block_no, page_no, subpage_no);
 	
-	b = bdbm_abm_get_block (bai, channel_no, chip_no, block_no);
+	b = bdbm_abm_get_block (bai, channel_no, way_no, block_no);
 
 	bdbm_bug_on (b == NULL);
 	bdbm_bug_on (page_no >= bai->np->nr_pages_per_block);
 	bdbm_bug_on (b->channel_no != channel_no);
-	bdbm_bug_on (b->chip_no != chip_no);
+	bdbm_bug_on (b->way_no != way_no);
 	bdbm_bug_on (b->block_no != block_no);
 	bdbm_bug_on (subpage_no >= bai->np->nr_subpages_per_page);
 
@@ -652,7 +660,7 @@ uint32_t bdbm_abm_load (bdbm_abm_info_t* bai, const char* fn)
 	for (i = 0; i < bai->np->nr_blocks_per_ssd; i++) {
 		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].status, sizeof(bai->blocks[i].status));
 		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].channel_no, sizeof(bai->blocks[i].channel_no));
-		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].chip_no, sizeof(bai->blocks[i].chip_no));
+		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].way_no, sizeof(bai->blocks[i].way_no));
 		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].block_no, sizeof(bai->blocks[i].block_no));
 		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].erase_count, sizeof(bai->blocks[i].erase_count));
 		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].nr_invalid_subpages, sizeof(bai->blocks[i].nr_invalid_subpages));
@@ -675,23 +683,23 @@ uint32_t bdbm_abm_load (bdbm_abm_info_t* bai, const char* fn)
 		list_del (&b->list);
 		switch (b->status) {
 		case BDBM_ABM_BLK_FREE:
-			list_add_tail (&b->list, &(bai->list_head_free[b->channel_no][b->chip_no]));
+			list_add_tail (&b->list, &(bai->list_head_free[b->channel_no][b->unit_no]));
 			bai->nr_free_blks++;
 			break;
 		case BDBM_ABM_BLK_FREE_PREPARE:
-			list_add_tail (&b->list, &(bai->list_head_free[b->channel_no][b->chip_no]));
+			list_add_tail (&b->list, &(bai->list_head_free[b->channel_no][b->unit_no]));
 			bai->nr_free_blks_prepared++;
 			break;
 		case BDBM_ABM_BLK_CLEAN:
-			list_add_tail (&b->list, &(bai->list_head_clean[b->channel_no][b->chip_no]));
+			list_add_tail (&b->list, &(bai->list_head_clean[b->channel_no][b->unit_no]));
 			bai->nr_clean_blks++;
 			break;
 		case BDBM_ABM_BLK_DIRTY:
-			list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->chip_no]));
+			list_add_tail (&b->list, &(bai->list_head_dirty[b->channel_no][b->unit_no]));
 			bai->nr_dirty_blks++;
 			break;
 		case BDBM_ABM_BLK_BAD:
-			list_add_tail (&b->list, &(bai->list_head_bad[b->channel_no][b->chip_no]));
+			list_add_tail (&b->list, &(bai->list_head_bad[b->channel_no][b->unit_no]));
 			bai->nr_bad_blks++;
 			break;
 		default:
@@ -728,7 +736,7 @@ uint32_t bdbm_abm_store (bdbm_abm_info_t* bai, const char* fn)
 	for (i = 0; i < bai->np->nr_blocks_per_ssd; i++) {
 		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].status, sizeof(bai->blocks[i].status));
 		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].channel_no, sizeof(bai->blocks[i].channel_no));
-		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].chip_no, sizeof(bai->blocks[i].chip_no));
+		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].way_no, sizeof(bai->blocks[i].way_no));
 		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].block_no, sizeof(bai->blocks[i].block_no));
 		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].erase_count, sizeof(bai->blocks[i].erase_count));
 		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].nr_invalid_subpages, sizeof(bai->blocks[i].nr_invalid_subpages));

@@ -85,7 +85,7 @@ static void __display_hex_values_all (uint8_t* host, uint8_t* back)
 static uint8_t* __ramssd_page_addr (
 	dev_ramssd_info_t* ri,
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no,
 	uint64_t page_no)
 {
@@ -94,7 +94,7 @@ static uint8_t* __ramssd_page_addr (
 
 	/* calculate the address offset */
 	ramssd_addr += dev_ramssd_get_channel_size (ri) * channel_no;
-	ramssd_addr += dev_ramssd_get_chip_size (ri) * chip_no;
+	ramssd_addr += dev_ramssd_get_die_size (ri) * way_no;
 	ramssd_addr += dev_ramssd_get_block_size (ri) * block_no;
 	ramssd_addr += dev_ramssd_get_page_size (ri) * page_no;
 
@@ -107,7 +107,7 @@ static uint8_t* __ramssd_page_addr (
 static uint8_t* __ramssd_block_addr (
 	dev_ramssd_info_t* ri,
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no)
 {
 	uint8_t* ptr_ramssd = NULL;
@@ -115,7 +115,7 @@ static uint8_t* __ramssd_block_addr (
 
 	/* calculate the address offset */
 	ramssd_addr += dev_ramssd_get_channel_size (ri) * channel_no;
-	ramssd_addr += dev_ramssd_get_chip_size (ri) * chip_no;
+	ramssd_addr += dev_ramssd_get_die_size (ri) * way_no;
 	ramssd_addr += dev_ramssd_get_block_size (ri) * block_no;
 
 	/* get the address */
@@ -137,8 +137,8 @@ static void* __ramssd_alloc_ssdram (bdbm_device_params_t* ptr_np)
 
 	nr_pages_in_ssd =
 		ptr_np->nr_channels *
-		ptr_np->nr_chips_per_channel *
-		ptr_np->nr_blocks_per_chip *
+		ptr_np->nr_units_per_channel *
+		ptr_np->nr_blocks_per_unit *
 		ptr_np->nr_pages_per_block;
 
 	ssd_size_in_bytes = 
@@ -198,7 +198,7 @@ static void __ramssd_free_ssdram (void* ptr_ramssd)
 static uint8_t __ramssd_read_page (
 	dev_ramssd_info_t* ri, 
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no,
 	uint64_t page_no,
 	kp_stt_t* kp_stt,
@@ -215,7 +215,7 @@ static uint8_t __ramssd_read_page (
 #endif
 
 	/* get the memory address for the destined page */
-	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
+	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, way_no, block_no, page_no)) == NULL) {
 		bdbm_error ("invalid ram_addr (%p)", ptr_ramssd_addr);
 		ret = 1;
 		goto fail;
@@ -273,7 +273,7 @@ static uint8_t __ramssd_read_page (
 			ptr_data_org = (uint8_t*)__get_ramssd_data_addr (ri, lpa);
 			if (memcmp (kp_ptr[loop], ptr_data_org+(loop*KPAGE_SIZE), KPAGE_SIZE) != 0) {
 				bdbm_msg ("[DATA CORRUPTION] lpa=%llu offset=%u type: %lld", lpa, loop, type);
-				bdbm_msg ("ch: %lld, way: %lld, block =%llu page=%llu", channel_no, chip_no, block_no, page_no);
+				bdbm_msg ("ch: %lld, way: %lld, block =%llu page=%llu", channel_no, way_no, block_no, page_no);
 				__display_hex_values (kp_ptr[loop], ptr_data_org+(loop*KPAGE_SIZE));
 				//bdbm_bug_on(1);
 			}
@@ -288,7 +288,7 @@ static uint8_t __ramssd_read_page (
 			ptr_data_org = (uint8_t*)__get_ramssd_data_addr (ri, lpa);
 			if (memcmp (kp_ptr[loop], ptr_data_org, KPAGE_SIZE) != 0) {
 				bdbm_msg ("[READ DATA CORRUPTION] lpa=%llu offset=%u", lpa, loop);
-				bdbm_msg ("   ch: %lld, way: %lld, block =%llu page=%llu, loop:%llu", channel_no, chip_no, block_no, page_no, loop);
+				bdbm_msg ("   ch: %lld, way: %lld, block =%llu page=%llu, loop:%llu", channel_no, way_no, block_no, page_no, loop);
 				__display_hex_values (kp_ptr[loop], ptr_data_org);
 			}
 		}
@@ -302,7 +302,7 @@ fail:
 static uint8_t __ramssd_prog_page (
 	dev_ramssd_info_t* ri, 
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no,
 	uint64_t page_no,
 	kp_stt_t* kp_stt,
@@ -316,7 +316,7 @@ static uint8_t __ramssd_prog_page (
 	uint32_t nr_kpages;
 #endif
 	/* get the memory address for the destined page */
-	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, chip_no, block_no, page_no)) == NULL) {
+	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, way_no, block_no, page_no)) == NULL) {
 		bdbm_error ("invalid ram addr (%p)", ptr_ramssd_addr);
 		ret = 1;
 		goto fail;
@@ -394,14 +394,14 @@ fail:
 static uint8_t __ramssd_erase_block (
 	dev_ramssd_info_t* ri, 
 	uint64_t channel_no,
-	uint64_t chip_no,
+	uint64_t way_no,
 	uint64_t block_no)
 {
 	uint8_t* ptr_ram_addr = NULL;
 
 	/* get the memory address for the destined block */
 	if ((ptr_ram_addr = __ramssd_block_addr 
-			(ri, channel_no, chip_no, block_no)) == NULL) {
+			(ri, channel_no, way_no, block_no)) == NULL) {
 		bdbm_error ("invalid ssdram addr (%p)", ptr_ram_addr);
 		return 1;
 	}
@@ -432,7 +432,7 @@ static uint32_t __ramssd_send_cmd (
 		ret = __ramssd_read_page (
 			ri, 
 			ptr_req->phyaddr.channel_no, 
-			ptr_req->phyaddr.chip_no, 
+			ptr_req->phyaddr.way_no, 
 			ptr_req->phyaddr.block_no, 
 			ptr_req->phyaddr.page_no, 
 			ptr_req->fmain.kp_stt,
@@ -454,7 +454,7 @@ static uint32_t __ramssd_send_cmd (
 			ret = __ramssd_prog_page (
 				ri, 
 				ptr_req->phyaddr.channel_no,
-				ptr_req->phyaddr.chip_no,
+				ptr_req->phyaddr.way_no,
 				ptr_req->phyaddr.block_no + plane,
 				ptr_req->phyaddr.page_no,
 				&ptr_req->fmain.kp_stt[index],
@@ -470,7 +470,7 @@ static uint32_t __ramssd_send_cmd (
 			ret = __ramssd_erase_block (
 				ri, 
 				ptr_req->phyaddr.channel_no, 
-				ptr_req->phyaddr.chip_no, 
+				ptr_req->phyaddr.way_no, 
 				ptr_req->phyaddr.block_no + plane);
 		}
 		break;
@@ -486,7 +486,7 @@ static uint32_t __ramssd_send_cmd (
 		break;
 
 	default:
-		bdbm_error ("invalid command :%d ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.chip_no);
+		bdbm_error ("invalid command :%d ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.way_no);
 		ret = 1;
 		break;
 	}
@@ -500,79 +500,71 @@ void __ramssd_cmd_done (dev_ramssd_info_t* ri)
 {
 	uint64_t loop, nr_parallel_units;
 	uint64_t nr_channels, nr_ways;
-	uint64_t channel, way;
 
-	nr_parallel_units = dev_ramssd_get_chips_per_ssd (ri);
-	nr_channels = dev_ramssd_get_channles_per_ssd(ri);
-	nr_ways = dev_ramssd_get_chips_per_channel(ri);
+	nr_parallel_units = dev_ramssd_get_units_per_ssd (ri);
 
-	for (channel = 0; channel < nr_channels; channel++)
+	for (loop = 0; loop < nr_parallel_units; loop++)
 	{
-		for (way = 0; way < nr_ways; way++)
+		if (ri->ptr_punits[loop].ptr_req != NULL) 
 		{
-			loop = channel*nr_ways + way;
+			bdbm_spin_lock (&ri->ramssd_lock);
 
-			if (ri->ptr_punits[loop].ptr_req != NULL) 
+			dev_ramssd_punit_t* punit;
+			int64_t elapsed_time_in_us;
+
+			punit = &ri->ptr_punits[loop];
+			elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&punit->sw);
+
+			if (elapsed_time_in_us >= punit->target_elapsed_time_us) 
 			{
-				bdbm_spin_lock (&ri->ramssd_lock);
+				void* ptr_req = punit->ptr_req;
 
-				dev_ramssd_punit_t* punit;
-				int64_t elapsed_time_in_us;
-
-				punit = &ri->ptr_punits[loop];
-				elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&punit->sw);
-
-				if (elapsed_time_in_us >= punit->target_elapsed_time_us) 
+				if (punit->dma_reflected != 0)
 				{
-					void* ptr_req = punit->ptr_req;
+					// program, erase and after DMA for read request.
+					punit->ptr_req = NULL;
+					bdbm_spin_unlock (&ri->ramssd_lock);
+					
+					/* call the interrupt handler */
+					ri->intr_handler (ptr_req);
+				}
+				else
+				{
+					// read operation after tR done.
+					int64_t count = 0;
+					bdbm_llm_req_t* req_ptr = (bdbm_llm_req_t*)(ri->ptr_punits[loop].ptr_req);
+					int64_t dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
+					dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + req_ptr->phyaddr.channel_no;
 
-					if (punit->dma_reflected != 0)
-					{
-						// program, erase and after DMA for read request.
-						punit->ptr_req = NULL;
-						bdbm_spin_unlock (&ri->ramssd_lock);
+					if (req_ptr->dma != 0)
+					{					
+						dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
+					}
 						
-						/* call the interrupt handler */
-						ri->intr_handler (ptr_req);
+					elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
+					if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
+					{	// channel is idle.
+						// start time update.
+						bdbm_stopwatch_start (&(ptr_channels->sw));
+						ptr_channels->target_elapsed_time_us = dma_time_us;
 					}
 					else
-					{
-						// read operation after tR done.
-						int64_t count = 0;
-						bdbm_llm_req_t* req_ptr = (bdbm_llm_req_t*)(ri->ptr_punits[loop].ptr_req);
-						int64_t dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
-						dev_ramssd_channel_t* ptr_channels = ri->ptr_channels + req_ptr->phyaddr.channel_no;
-
-						if (req_ptr->dma != 0)
-						{					
-							dma_time_us = ri->np->read_dma_time_us[count] * req_ptr->dma;
-						}
-							
-						elapsed_time_in_us = bdbm_stopwatch_get_elapsed_time_us (&(ptr_channels->sw));
-						if (elapsed_time_in_us >= ptr_channels->target_elapsed_time_us)
-						{	// channel is idle.
-							// start time update.
-							bdbm_stopwatch_start (&(ptr_channels->sw));
-							ptr_channels->target_elapsed_time_us = dma_time_us;
-						}
-						else
-						{	// channel is busy - busy time will be accumulated.
-							ptr_channels->target_elapsed_time_us += dma_time_us;
-							dma_time_us = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
-						}
-
-						punit->target_elapsed_time_us += dma_time_us;
-						punit->dma_reflected = 1;
-						
-						bdbm_spin_unlock (&ri->ramssd_lock);
+					{	// channel is busy - busy time will be accumulated.
+						ptr_channels->target_elapsed_time_us += dma_time_us;
+						dma_time_us = (ptr_channels->target_elapsed_time_us - elapsed_time_in_us);
 					}
-				} 
-				else 
-				{
+
+					punit->target_elapsed_time_us += dma_time_us;
+					punit->dma_reflected = 1;
+					
 					bdbm_spin_unlock (&ri->ramssd_lock);
 				}
 			} 
-		}
+			else 
+			{
+				bdbm_spin_unlock (&ri->ramssd_lock);
+			}
+		} 
 	}
 }
 
@@ -711,7 +703,7 @@ dev_ramssd_info_t* dev_ramssd_create (
 	}
 
 	/* create parallel units */
-	nr_parallel_units = dev_ramssd_get_chips_per_ssd (ri);
+	nr_parallel_units = dev_ramssd_get_units_per_ssd (ri);
 
 	if ((ri->ptr_punits = (dev_ramssd_punit_t*)
 			bdbm_malloc_atomic (sizeof (dev_ramssd_punit_t) * nr_parallel_units)) == NULL) {

@@ -84,7 +84,7 @@ void pmu_create (bdbm_drv_info_t* bdi)
 	bdi->pm.time_gc_tot = 0;
 
 	/* channel / chip utilization */
-	punit = np->nr_chips_per_channel * np->nr_channels;
+	punit = np->nr_units_per_channel * np->nr_channels;
 	bdi->pm.util_r = bdbm_malloc_atomic (punit * sizeof (atomic64_t));
 	if (bdi->pm.util_r)  {
 		for (i = 0; i < punit; i++) 
@@ -511,9 +511,9 @@ void pmu_display (bdbm_drv_info_t* bdi)
 	bdbm_msg ("");
 
 	bdbm_msg ("[6] Utilization (R)");
-	for (i = 0; i < np->nr_chips_per_channel; i++) {
+	for (i = 0; i < np->nr_units_per_channel; i++) {
 		for (j = 0; j < np->nr_channels; j++) {
-			sprintf (str, "% 8ld ", atomic64_read (&bdi->pm.util_r[j*np->nr_chips_per_channel+i]));
+			sprintf (str, "% 8ld ", atomic64_read (&bdi->pm.util_r[j*np->nr_units_per_channel+i]));
 			strcat (format, str);
 		}
 		bdbm_msg ("%s", format);
@@ -522,9 +522,9 @@ void pmu_display (bdbm_drv_info_t* bdi)
 	bdbm_msg ("");
 
 	bdbm_msg ("[7] Utilization (W)");
-	for (i = 0; i < np->nr_chips_per_channel; i++) {
+	for (i = 0; i < np->nr_units_per_channel; i++) {
 		for (j = 0; j < np->nr_channels; j++) {
-			sprintf (str, "% 8ld ", atomic64_read (&bdi->pm.util_w[j*np->nr_chips_per_channel+i]));
+			sprintf (str, "% 8ld ", atomic64_read (&bdi->pm.util_w[j*np->nr_units_per_channel+i]));
 			strcat (format, str);
 		}
 		bdbm_msg ("%s", format);
