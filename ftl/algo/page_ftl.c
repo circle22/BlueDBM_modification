@@ -534,7 +534,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 
 
 #ifdef COPYBACK_QUOTA
-	p->blk_quota_data = (quota_info*)bdbm_zmalloc(sizeof(quota_info)*np->nr_blocks_per_unit);
+	p->blk_quota_data = (quota_info*)bdbm_zmalloc(sizeof(quota_info)*np->nr_blocks_per_die);
 
 	p->distribution_info[0].threshold_copyback = 5;
 	p->distribution_info[1].threshold_copyback = 4;
@@ -1025,12 +1025,11 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 	ppa->page_no = p->curr_page_ofs;
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
 
-	bdbm_msg("ch %d, way %d, unit %d, blk %d, page %d", ppa->channel_no, ppa->way_no, ppa->punit_id, ppa->block_no, ppa->page_no);
+//	bdbm_msg("ch %d, way %d, unit %d, blk %d, page %d", ppa->channel_no, ppa->way_no, ppa->punit_id, ppa->block_no, ppa->page_no);
 
 	/* check some error cases before returning the physical address */
 	bdbm_bug_on (ppa->channel_no != curr_channel);
 	bdbm_bug_on (ppa->way_no != curr_way);
-	bdbm_bug_on (ppa->unit_no != curr_unit);
 	bdbm_bug_on (ppa->page_no >= np->nr_pages_per_block);
 
 	/* go to the next parallel unit */

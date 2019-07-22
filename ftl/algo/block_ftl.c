@@ -291,7 +291,7 @@ uint32_t bdbm_block_ftl_get_ppa (
 		 * especially when initialzing a file system;
 		 * in that case, we just ignore requests */
 		ppa->channel_no = 0;
-		ppa->chip_no = 0;
+		ppa->way_no = 0;
 		ppa->block_no = 0;
 		ppa->page_no = 0;
 		ppa->punit_id = 0;
@@ -306,7 +306,7 @@ uint32_t bdbm_block_ftl_get_ppa (
 
 	/* return a phyical page address */
 	ppa->channel_no = e->channel_no;
-	ppa->chip_no = e->chip_no;
+	ppa->way_no = e->chip_no;
 	ppa->block_no = e->block_no;
 	ppa->page_no = page_ofs;
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
@@ -367,7 +367,7 @@ int32_t __bdbm_block_ftl_allocate_segment (
 			bdbm_abm_get_free_block_commit (p->abm, b);
 			e->status = BFTL_ALLOCATED;
 			e->channel_no = b->channel_no;
-			e->chip_no = b->chip_no;
+			e->chip_no = b->way_no;
 			e->block_no = b->block_no;
 			e->rw_pg_ofs = -1;
 		} else {
@@ -430,7 +430,7 @@ uint32_t bdbm_block_ftl_get_free_ppa (
 		if (e->rw_pg_ofs < page_ofs) {
 			/* [CASE 1] it is a writable block */
 			ppa->channel_no = e->channel_no;
-			ppa->chip_no = e->chip_no;
+			ppa->way_no = e->chip_no;
 			ppa->block_no = e->block_no;
 			ppa->page_no = page_ofs;
 			ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
@@ -450,7 +450,7 @@ uint32_t bdbm_block_ftl_get_free_ppa (
 			/* TODO: it will be an error case in our final implementation,
 			 * but we temporarly allows this case */
 			ppa->channel_no = e->channel_no;
-			ppa->chip_no = e->chip_no;
+			ppa->way_no = e->chip_no;
 			ppa->block_no = e->block_no;
 			ppa->page_no = page_ofs;
 			ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
@@ -619,7 +619,7 @@ uint32_t bdbm_block_ftl_map_lpa_to_ppa (
 	if (e->status == BFTL_ALLOCATED) {
 		/* if so, see if the mapping information is valid or not */
 		bdbm_bug_on (e->channel_no != ppa->channel_no);	
-		bdbm_bug_on (e->chip_no != ppa->chip_no);
+		bdbm_bug_on (e->chip_no != ppa->way_no);
 		bdbm_bug_on (e->block_no != ppa->block_no);
 
 		/* update the offset of the recently written page */
@@ -636,7 +636,7 @@ uint32_t bdbm_block_ftl_map_lpa_to_ppa (
 	/* mapping lpa to ppa */
 	e->status = BFTL_ALLOCATED;
 	e->channel_no = ppa->channel_no;
-	e->chip_no = ppa->chip_no;
+	e->chip_no = ppa->way_no;
 	e->block_no = ppa->block_no;
 	e->rw_pg_ofs = page_ofs;
 	
@@ -787,7 +787,7 @@ uint32_t __bdbm_block_ftl_erase_block (bdbm_drv_info_t* bdi, uint64_t seg_no)
 			r->req_type = REQTYPE_GC_ERASE;
 			r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
 			r->phyaddr.channel_no = b->channel_no;
-			r->phyaddr.chip_no = b->chip_no;
+			r->phyaddr.way_no = b->way_no;
 			r->phyaddr.block_no = b->block_no;
 			r->phyaddr.page_no = 0;
 			r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
@@ -817,7 +817,7 @@ uint32_t __bdbm_block_ftl_erase_block (bdbm_drv_info_t* bdi, uint64_t seg_no)
 		bdbm_abm_block_t* b = p->gc_bab[i];
 		if (hlm_gc->llm_reqs[i].ret != 0)
 			is_bad = 1; /* bad block */
-		bdbm_abm_erase_block (p->abm, b->channel_no, b->chip_no, b->block_no, is_bad);
+		bdbm_abm_erase_block (p->abm, b->channel_no, b->way_no, b->block_no, is_bad);
 	}
 
 	/* measure gc elapsed time */
@@ -902,7 +902,7 @@ uint32_t __bdbm_block_ftl_do_gc_block_merge (
 			r->fmain.kp_stt[0] = KP_STT_DATA;
 			r->req_type = REQTYPE_GC_READ;
 			r->phyaddr.channel_no = e->channel_no;
-			r->phyaddr.chip_no = e->chip_no;
+			r->phyaddr.way_no = e->chip_no;
 			r->phyaddr.block_no = e->block_no;
 			r->phyaddr.page_no = j;
 			r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
@@ -947,7 +947,7 @@ uint32_t __bdbm_block_ftl_do_gc_block_merge (
 		r->req_type = REQTYPE_GC_ERASE;
 		r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
 		r->phyaddr.channel_no = e->channel_no;
-		r->phyaddr.chip_no = e->chip_no;
+		r->phyaddr.way_no = e->chip_no;
 		r->phyaddr.block_no = e->block_no;
 		r->phyaddr.page_no = 0;
 		r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
@@ -1106,7 +1106,7 @@ void __bdbm_block_ftl_badblock_scan_eraseblks (bdbm_drv_info_t* bdi, uint64_t bl
 			r->req_type = REQTYPE_GC_ERASE;
 			r->logaddr.lpa[0] = -1ULL; /* lpa is not available now */
 			r->phyaddr.channel_no = b->channel_no;
-			r->phyaddr.chip_no = b->chip_no;
+			r->phyaddr.way_no = b->way_no;
 			r->phyaddr.block_no = b->block_no;
 			r->phyaddr.page_no = 0;
 			r->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&r->phyaddr));
@@ -1141,7 +1141,7 @@ void __bdbm_block_ftl_badblock_scan_eraseblks (bdbm_drv_info_t* bdi, uint64_t bl
 			b->block_no, 
 			is_bad);
 		*/
-		bdbm_abm_erase_block (p->abm, b->channel_no, b->chip_no, b->block_no, is_bad);
+		bdbm_abm_erase_block (p->abm, b->channel_no, b->way_no, b->block_no, is_bad);
 	}
 
 	/* measure gc elapsed time */

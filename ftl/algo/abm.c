@@ -162,7 +162,7 @@ bdbm_abm_info_t* bdbm_abm_create (
 		bai->blocks[loop].erase_count = 0;
 		bai->blocks[loop].pst = NULL;
 
-		bdbm_msg("ch %d, way %d, unit %d, blk %d, loop %d",  bai->blocks[loop].channel_no, bai->blocks[loop].way_no, bai->blocks[loop].unit_no, bai->blocks[loop].block_no, loop);
+		//bdbm_msg("ch %d, way %d, unit %d, blk %d, loop %d",  bai->blocks[loop].channel_no, bai->blocks[loop].way_no, bai->blocks[loop].unit_no, bai->blocks[loop].block_no, loop);
 #ifndef PER_PAGE_COPYBACK_MANAGEMENT
 		bai->blocks[loop].nr_invalid_subpages = 0;
 #else

@@ -48,7 +48,7 @@ enum BDBM_DEFAULT_NAND_PARAMS {
 	NAND_PAGE_OOB_SIZE = 8*BDBM_MAX_PAGES/PLANE_NUMBER,
 	NR_PAGES_PER_BLOCK = 128, //128, //64, //64,
 //	NR_BLOCKS_PER_CHIP = 1024, //1024, //1600, //800,//1600,//1600, //2300 , // 192/BDBM_MAX_PAGES,
-	NR_BLOCKS_PER_DIE = 1024, 
+	NR_BLOCKS_PER_DIE = 1024*4, 
 	NR_CHANNELS = 1,
 //	NR_CHIPS_PER_CHANNEL = 16,
 	NR_DIES_PER_CHANNEL = 2,
@@ -265,6 +265,7 @@ void display_device_params (bdbm_device_params_t* p)
     bdbm_msg ("DEVICE PARAMETERS");
     bdbm_msg ("=====================================================================");
     bdbm_msg ("# of channels = %llu", p->nr_channels);
+    bdbm_msg ("# of ways = %llu", p->nr_ways);
     bdbm_msg ("# of units per channel = %llu", p->nr_units_per_channel);
     bdbm_msg ("# of planes per die = %llu", p->nr_planes);
     bdbm_msg ("# of blocks per unit = %llu", p->nr_blocks_per_unit);
