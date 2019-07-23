@@ -114,6 +114,7 @@ typedef struct {
 	char* panMoveCount;
 	bdbm_spinlock_t ftl_lock;
 	uint64_t nr_punits;
+	uint64_t nr_dies;
 	uint64_t nr_punits_pages;
 
 	/* for the management of active blocks */
@@ -356,6 +357,7 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->curr_puid = 0;
 	p->curr_page_ofs = 0;
 	p->nr_punits = np->nr_units_per_channel * np->nr_channels;
+	p->nr_dies = np->nr_channels * np->nr_ways;
 	p->nr_punits_pages = p->nr_punits * np->nr_pages_per_block;
 	bdbm_spin_lock_init (&p->ftl_lock);
 	_ftl_page_ftl.ptr_private = (void*)p;
@@ -479,11 +481,12 @@ uint32_t bdbm_page_ftl_create (bdbm_drv_info_t* bdi)
 	p->src_unit_hand = 0;
 	p->src_plane_hand = 0;
 
-	p->partial_read_start = p->nr_punits * np->nr_planes;
+//	p->partial_read_start = p->nr_punits * np->nr_planes;
+	p->partial_read_start = 0;
 	p->partial_read_end = p->nr_punits * 10;
 	p->partial_head = p->partial_read_start;
 	p->partial_tail = p->partial_read_start;
-	p->required_subpage_count = 0;
+	p->required_subpage_count = p->nr_punits * np->nr_subpages_per_page * np->nr_planes; // flush unit.
 	p->buffered_subpage_count = 0;
 
 	p->erase_idx_start = p->partial_read_end;
@@ -1092,8 +1095,9 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 				
 	if (p->gc_dst_blk_offs[copy_count][unit] == np->nr_pages_per_block)
 	{
-		uint64_t ch = unit/np->nr_units_per_channel;
-		uint64_t way = unit%np->nr_units_per_channel;
+		uint64_t ch = unit / np->nr_units_per_channel;
+		uint64_t unit_within_ch = unit % np->nr_units_per_channel;
+		uint64_t way = unit_within_ch / np->nr_groups_per_die;
 		
 		/* restore previous active block */
 		if (p->gc_dst_bab[copy_count][unit] != NULL)
@@ -1101,20 +1105,13 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			for (plane = 0; plane < np->nr_planes; plane++)
 			{
 				b = p->gc_dst_bab[copy_count][unit];
-//				bdbm_msg("restore dest : %lld, invalid : %lld", b[plane].block_no, b[plane].nr_invalid_subpages);
-
 				bdbm_abm_make_dirty_blk(p->bai, ch, way, b[plane].block_no);
 			}
 		}
 	
-		if (unit == 0)
-		{
-//			bdbm_msg("Dest blk : cpcnt:%lld, free:%lld, plane0:%lld, page1:%lld", copy_count, p->bai->nr_free_blks, p->bai->anr_free_blks[0][0], p->bai->anr_free_blks[1][0]);		
-		}
-
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
-			b = bdbm_abm_get_free_block_prepare (p->bai, ch, way);
+			b = bdbm_abm_get_free_block_prepare (p->bai, ch, unit_within_ch);
 			if (b == NULL)
 			{
 				bdbm_error ("bdbm_abm_get_free_block_prepare failed");
@@ -1130,15 +1127,6 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			b->info = 11;//dest
 			b->copy_count = copy_count;
 			p->block_info[copy_count]++;
-
-#ifdef PER_BLOCK_QUOTA
-			if (unit == 0)
-			{
-				p->blk_quota_data[b->block_no + plane].copyback_quota = p->dstIdx_to_quota[copy_count];
-
-				//bdbm_msg( "new dst - idx : %lld, quota : %lld", copy_count, p->dstIdx_to_quota[copy_count]);
-			}
-#endif			
 		}
 				
 		/* ok; go ahead with 0 offset */ 
@@ -1378,25 +1366,23 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_drv_info_t* bdi,
 	uint64_t channel_no,
-	uint64_t unit_no)
+	uint64_t way_no, 
+	uint64_t group_no)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 
-	bdbm_abm_block_t* victim = NULL;
 	struct list_head* pos;
 
-	uint64_t unit = channel_no * np->nr_units_per_channel + unit_no;
 	uint64_t plane;
-	uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes * p->nr_punits; 
+	uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes * p->nr_dies; 
 
-	static uint64_t valid_victim = 0;
-	static uint64_t victim_blk_no = 0;
+	static uint64_t valid_victim[4] = {0,};
+	static uint64_t victim_blk_no[4] = {0, };
 
 	uint64_t index;
 	uint64_t anMax_invalid_pages[MAX_COPY_BACK];
 	bdbm_abm_block_t* apVictim[MAX_COPY_BACK]; 
-	uint64_t max_generation_factor = 0;
 
 	for (index = 0; index < MAX_COPY_BACK; index++)
 	{
@@ -1404,13 +1390,14 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 		apVictim[index] = NULL;
 	}
 
-	if (valid_victim != 0)
-	{	
-		victim = bdbm_abm_get_block(p->bai, channel_no, unit_no/np->nr_groups_per_die, victim_blk_no);
-
-		if ((unit + 1) == p->nr_punits)
+	if (valid_victim[group_no] != 0)
+	{
+		uint64_t dies = channel_no * np->nr_units_per_channel + way_no;		
+		bdbm_abm_block_t* victim = bdbm_abm_get_block(p->bai, channel_no, way_no, victim_blk_no[group_no]);
+ 
+		if (dies == p->nr_dies - 1)
 		{
-			valid_victim = 0; // this victim information is not valid anymore. 
+			valid_victim[group_no] = 0; // this victim information is not valid anymore. 
 		}
 	
 		return victim;
@@ -1426,9 +1413,10 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 		for (plane = 1; plane < np->nr_planes; plane++)
 		{
 			pos = pos->next; // next plane;
-		}		
-	
-		blk_info = block->copy_count;
+		}
+
+		blk_info = block->unit_no % np->nr_groups_per_die;
+
 		if (apVictim[blk_info] == NULL)
 		{
 			apVictim[blk_info] = block;
@@ -1439,58 +1427,17 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 			apVictim[blk_info] = block;
 			anMax_invalid_pages[blk_info] = invalid_pages;
 		}
-
-		if (invalid_pages == full_invalid_pages) 
-		{
-			break;
-		}
 	}
 
-	for (index = 0; index < MAX_COPY_BACK; index++)
+	for (index = 0; index < np->nr_groups_per_die; index++)
 	{	
-		uint64_t dst_idx;
-		uint64_t generation_factor;
+		valid_victim[index] = 1;
+		victim_blk_no[index] = apVictim[index]->block_no;
 
-		if (apVictim[index] == NULL)
-		{
-			continue;
-		}
-
-		dst_idx = index + 1;
-		if (dst_idx == MAX_COPY_BACK)
-		{
-			dst_idx = 0;
-		}
-
-		
-		generation_factor = anMax_invalid_pages[index];
-
-#if	(LAZY_CORRECTION_MODE != 0)
-		if ( (p->utilization >= UTILIZATION_LAZY_MODE) &&
-			 (p->block_info[MAX_COPY_BACK-1] < (p->block_info[MAX_COPY_BACK]/MAX_COPY_BACK)* LAZY_MODE_THRESHOLD) )
-		{
-			// lazy mode condition
-			if (dst_idx == 0)
-			{
-				generation_factor = (generation_factor * GENERATION_FACTOR_WEIGHT);
-				p->gc_mode = 1;	// lazy correction mode
-			}
-		}
-#endif
-
-//		cost = anMax_invalid_pages[index] + (np->nr_pages_per_block - p->gc_dst_blk_offs[dst_idx][0])*GC_FACTOR / np->nr_pages_per_block;
-	
-		if (max_generation_factor < generation_factor)
-		{
-			max_generation_factor = generation_factor;
-			victim = apVictim[index];
-		}
+		bdbm_msg("group : %d, src blk : %d  invalid page : %d", index, apVictim[index]->block_no, anMax_invalid_pages[index]);
 	}
 
-	valid_victim = 1;
-	victim_blk_no = victim->block_no;
-
-	return victim;
+	return apVictim[group_no];
 }
 
 
@@ -1559,10 +1506,8 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
-	uint64_t ch, way, unit;
+	uint64_t unit;
 	bdbm_abm_block_t* src_blk = NULL;
-
-	p->gc_mode = 0;	// default correction mode
 
 	p->generated_token = 0;
 	for (unit = 0; unit < p->nr_punits; unit++)
@@ -1572,11 +1517,12 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 		// 2. Alloc New Src
 		bdbm_bug_on(p->gc_src_blk_offs[0][unit] != np->nr_pages_per_block);
 		
-		ch = unit / np->nr_units_per_channel;
-		way = unit % np->nr_units_per_channel; 
+		uint64_t ch = unit / np->nr_units_per_channel;
+		uint64_t way = (unit % np->nr_units_per_channel) / np->nr_groups_per_die;
+		uint64_t group = (unit % np->nr_units_per_channel) % np->nr_groups_per_die;		
 		
 		// choose victim blocks - new src block
-		if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way))) 
+		if ((src_blk = __bdbm_page_ftl_victim_selection_greedy (bdi, ch, way, group))) 
 		{
 			uint64_t plane;
 			
@@ -1595,55 +1541,13 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 				p->invald_page_count[unit] += src_blk[plane].nr_invalid_subpages;
 
 				p->src_valid_page_count += (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages);
-
-//					bdbm_msg(  "unit:%lld, plane:%lld, valid:%lld, blk: %lld, info:%lld", unit, plane, (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages), src_blk[plane].block_no, src_blk[plane].info);
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-				p->generated_token += (src_blk[plane].nr_invalid_subpages - np->nr_subpages_per_page);
-#else
 				p->generated_token += src_blk[plane].nr_invalid_subpages;
-#endif
 			}
 		}
 	}
 	
 	p->generated_token /= np->nr_pages_per_block;
 	p->generated_token--;
-
-#ifndef COPYBACK_QUOTA	
-	p->dst_index = src_blk[0].copy_count + 1;
-	if (p->dst_index == MAX_COPY_BACK)
-	{
-		p->dst_index = 0;
-	}
-#else
-
-#ifdef	PER_BLOCK_QUOTA
-	int32_t newQuota = p->blk_quota_data[src_blk[0].block_no].copyback_quota - p->blk_quota_data[src_blk[0].block_no].diminishing_quota;
-
-	if (newQuota >= 0)
-	{
-		p->dst_index = p->quota_to_dstIdx[newQuota];
-	}
-	else
-	{
-		p->dst_index = 0;
-	}
-#else
-	// PER_BLOCK_QUOTA
-#endif
-#endif
-
-#if	(EARLY_CORRECTION_MODE != 0)
-	if ((p->utilization < UTILIZATION_EARLY_MODE) &&
-		 (p->block_info[0] < (p->block_info[MAX_COPY_BACK]* EARLY_MODE_THRESHOLD)))
-	{
-		p->dst_index = 0;
-		p->gc_mode = 2;	// early correction mode
-	}
-#endif
-
-//		bdbm_msg("Alloc Src : blk : %lld, validpage :%lld, type: %lld", src_blk[0].block_no, (np->nr_subpages_per_block - src_blk[0].nr_invalid_subpages), src_blk[0].info);; 	
-//		bdbm_page_ftl_print_blocks(bdi);
 
 	bdbm_msg("GC %lld,V %lld,U %lld,M %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
 }
@@ -1877,7 +1781,6 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 
 	bdbm_abm_block_t* src_blk;
 	uint64_t page; 
-	uint64_t idx = 0;
 	uint64_t valid_subpage_count;
 	uint64_t refresh = 0;
 	uint64_t valid_count = 0;
@@ -2017,47 +1920,8 @@ uint64_t bdbm_page_ftl_gc_read_page(bdbm_drv_info_t* bdi, uint64_t unit, uint64_
 	
 	req->req_type = REQTYPE_GC_READ;
 	req->dma = 0; // 0 - DMA bypass, 1 - DMA
-
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-//	uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->meta_load_idx_start + unit].fmain.kp_ptr[0]);
-//	p->dst_index = copyback_count[src_page + src_page_offs] + 1;
-
-	refresh = 0;
-
-	#ifndef PER_PAGE_QUOTA		// per count management.
-	p->dst_index = p->cached_copyback_info[src_blk[plane].block_no * np->nr_pages_per_block + (src_page + src_page_offs)] + 1;
-
-	if ( p->dst_index == MAX_COPY_BACK)
-	{
-		refresh = 1; // utilize int
-		p->dst_index = 0;
-	}
-	#else
-	uint32_t nCurQuota = p->cached_copyback_info[src_blk[plane].block_no * np->nr_pages_per_block + (src_page + src_page_offs)];
-
-	if (nCurQuota >= p->blk_quota_data[src_blk->block_no].diminishing_quota)
-	{
-		p->dst_index = 1;			
-		p->new_quota = nCurQuota - p->blk_quota_data[src_blk->block_no].diminishing_quota;
-	}	
-	else
-	{
-		refresh = 1; // utilize int
-		p->dst_index = 0;
-		p->new_quota = p->initial_quota;	
-	}	
-	#endif
-#endif
-
-	if (refresh == 0)
-	{
-		p->internal_copy_count += valid_count;
-	}
-	else
-	{
-		req->dma = valid_count;
-		p->external_refresh_count += valid_count; // Error propagation prevention
-	}
+	req->dma = valid_count;
+	p->external_refresh_count += valid_count; // Error propagation prevention
 	
 	req->phyaddr.channel_no = src_blk[plane].channel_no;
 	req->phyaddr.way_no = src_blk[plane].way_no;
@@ -2280,6 +2144,113 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t unit,
 	return required_page;
 }
 
+
+uint64_t bdbm_page_ftl_gc_read_pages(bdbm_drv_info_t* bdi, uint64_t unit, uint64_t plane, uint64_t group)
+{
+	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
+	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
+	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
+	bdbm_llm_req_t* req = NULL;
+
+	bdbm_abm_block_t* src_blk;
+	uint64_t page; 
+	uint64_t valid_count = 0;
+	uint64_t page_offs = 0;
+	
+	src_blk = p->gc_src_bab[unit];
+
+	if (np->nr_subpages_per_block - src_blk[plane].nr_invalid_subpages == 0)
+	{
+		return 0;
+	}
+	
+	uint64_t req_idx = p->partial_tail; 
+	if (req_idx == p->partial_read_end)
+	{
+		p->partial_tail = p->partial_read_start;		
+		req_idx = p->partial_tail; 
+	}
+	
+	for (page = p->gc_src_blk_offs[plane][unit]; page < np->nr_pages_per_block; page += 8)
+	{
+		uint64_t pst_idx = page / sizeof(babm_abm_subpage_t); // 64bit = 8bit x 8page consideration
+		uint8_t* valid_bitmap;
+		uint64_t found = 0; 
+		
+		if (src_blk[plane].pst[pst_idx] == 0)
+		{
+			continue;
+		}
+
+		p->gc_src_blk_offs[plane][unit] = page;
+
+		valid_bitmap = (uint8_t*)(src_blk[plane].pst + pst_idx);					
+		for (page_offs = 0; page_offs < sizeof(babm_abm_subpage_t); page_offs++)
+		{
+			if (valid_bitmap[page_offs] != 0)
+			{
+				found = 1;
+				break;
+			}			
+		}
+		
+		if (found != 0)
+		{
+			uint64_t subPage; 
+
+			req = &hlm_gc->llm_reqs[req_idx]; // one request per plane
+			hlm_reqs_pool_reset_fmain (&req->fmain, BDBM_MAX_PAGES);
+			hlm_reqs_pool_reset_logaddr (&req ->logaddr, BDBM_MAX_PAGES);
+	
+			for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++)
+			{
+				if (valid_bitmap[page_offs] & (0x01 << subPage))
+				{
+					req->fmain.kp_stt[subPage] = KP_STT_DATA;\
+					valid_count++;
+				}
+			}
+
+			valid_bitmap[page_offs] = 0;
+			src_blk[plane].nr_invalid_subpages += valid_count;	// read out only 1 page
+			p->external_partial_valid_count += valid_count; 
+
+			req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
+			p->buffered_subpage_count += valid_count;
+
+			bdbm_msg("  read pages: %lld,%lld, %lld, valid %lld, buffered %lld", plane, unit, page+page_offs, valid_count, p->buffered_subpage_count);
+			
+			break;
+		}
+	}
+	
+	if (req != NULL)
+	{
+		req->req_type = REQTYPE_GC_READ;
+		req->phyaddr.channel_no = src_blk[plane].channel_no;
+		req->phyaddr.way_no = src_blk[plane].way_no;
+		req->phyaddr.block_no = src_blk[plane].block_no;
+		req->phyaddr.page_no = page + page_offs;
+		req->phyaddr.punit_id = BDBM_GET_PUNIT_ID (bdi, (&req->phyaddr));
+		req->ptr_hlm_req = (void*)hlm_gc;
+		req->ret = 0;
+		
+		/* send read reqs to llm */
+		hlm_gc->req_type = REQTYPE_GC_READ;
+		hlm_gc->nr_llm_reqs++;
+		
+		if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) 
+		{
+			bdbm_error ("llm_make_req failed");
+			bdbm_bug_on (1);
+		}		
+
+		p->partial_tail++;
+	}
+
+	return valid_count;
+}
+
 uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 {
 	bdbm_page_ftl_private_t* p = _ftl_page_ftl.ptr_private;
@@ -2309,62 +2280,47 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 			// special case handling
 			return 0;
 		}	
-
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-		__bdbm_page_ftl_load_meta(bdi);
-#endif
 	}
+
+
+	// 2. Read Valid Page.
+	uint64_t ch, way, group;
+	uint64_t cur_valid;
 
 	average_valid = ((p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits) / np->nr_planes;
 
-	// 2. read partial/.. page.
-	uint64_t min_required_subpage_count = 0x7FFF;
-	
-//	bdbm_msg(" readpartial : %lld, %lld, average:%lld", p->buffered_subpage_count, p->required_subpage_count, average_valid);
-	for (round = 0; round < np->nr_subpages_per_page; round++)
+	while(1)
 	{
-		uint64_t required_page_count = 0;
-
-		if (p->buffered_subpage_count >  p->required_subpage_count)
-		{
-			break;
-		}
-
+		cur_valid = 0;
 		for (plane = 0; plane < np->nr_planes; plane++)
 		{
-			for (unit = 0; unit < p->nr_punits; unit++)
+			for (unit = 0; unit < np->nr_units_per_ssd; unit++)
 			{
-				required_page_count += bdbm_page_ftl_gc_read_partial_page(bdi, unit, plane, average_valid);
+				uint64_t cur_unit;
+
+				cur_unit = (p->src_unit_hand + unit);
+				if (cur_unit >= np->nr_units_per_ssd)
+				{
+					cur_unit -= np->nr_units_per_ssd;
+				}
+				
+				group = cur_unit % np->nr_groups_per_die;			
+				cur_valid += bdbm_page_ftl_gc_read_pages(bdi, cur_unit, plane, group);
+
+				if (p->buffered_subpage_count >= p->required_subpage_count)
+				{
+					p->src_unit_hand = unit + 1;
+					break;
+				}			
 			}
 		}
-		
-//`		bdbm_msg(" readpartial rnd:%lld, %lld, %lld", round, p->buffered_subpage_count, required_page_count);
 
-		if (min_required_subpage_count > required_page_count)
+		if ((cur_valid == 0) || (p->buffered_subpage_count >= p->required_subpage_count))
 		{
-			min_required_subpage_count = required_page_count;
-			p->required_subpage_count = min_required_subpage_count;
-		}
-		
-		if (p->buffered_subpage_count >=  min_required_subpage_count)
-		{
-			break;
+			bdbm_msg("----Read Issue Done---- cur valid page %d", p->src_valid_page_count);
 		}
 	}
-
-	// 3. read nr_punits page - as large as possible
-	uint64_t valid_subpage = 0;
-	for (plane = 0; plane < np->nr_planes; plane++)
-	{
-		for (unit = 0; unit < p->nr_punits; unit++)
-		{
-			valid_subpage += bdbm_page_ftl_gc_read_page(bdi, unit, plane, average_valid);
-		}								
-	}
-
-//	bdbm_msg(" valid diff, %lld, %lld, b %lld, r %lld", p->src_valid_page_count, valid_subpage, p->buffered_subpage_count, p->required_subpage_count);
-	p->src_valid_page_count = valid_subpage;
-
+	
 	return 1;
 }
 
@@ -2374,127 +2330,97 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 	bdbm_hlm_req_gc_t* hlm_gc = &p->gc_hlm; // used for read
 	bdbm_hlm_req_gc_t* hlm_gc_w = &p->gc_hlm_w; // used for write.
-	uint64_t ch, way, subPage, unit, plane;
+	uint64_t ch, way, group, subPage, plane;
 	bdbm_llm_req_t* req = NULL;
 	bdbm_abm_block_t* src_blk = NULL;
-	uint64_t dst_index = p->dst_index; // default
 
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-	if (dst_index != 0)
-	{
-		dst_index = 1;
-	}
-#endif		
-
-	// copy information from read to write hlm...l
 //	bdbm_msg("before head :%lld %lld", p->partial_head, p->buffered_subpage_count);
 	uint64_t valid_page_count = hlm_reqs_pool_compaction(hlm_gc_w, hlm_gc, np, p->dst_offset, &(p->partial_head), p->partial_tail, &p->buffered_subpage_count);
 //	bdbm_msg("after head :%lld %lld", p->partial_head, p->buffered_subpage_count);
-	
-	for (way = 0; way < np->nr_units_per_channel; way++)
+
+	for (group = 0; group < np->nr_groups_per_die; group++)
 	{
-		for (ch = 0; ch < np->nr_channels; ch++)
-		{	
-			uint64_t subPage_idx = 0;					
-			unit = ch * np->nr_units_per_channel + way;
+		for (way = 0; way < np->nr_units_per_channel; way++)
+		{
+			for (ch = 0; ch < np->nr_channels; ch++)
+			{	
+				uint64_t subPage_idx = 0;
+				
+				uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die + group;
 
-			// Write page
-			/* build hlm_req_gc for writes */
-			req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
-			req->req_type = REQTYPE_GC_WRITE; /* change to write */
+				// Write page
+				/* build hlm_req_gc for writes */
+				req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
+				req->req_type = REQTYPE_GC_WRITE; /* change to write */
 
-			for (plane = 0; plane < np->nr_planes; plane++)
-			{
-				for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
+				for (plane = 0; plane < np->nr_planes; plane++)
 				{
-					/* move subpages that contain new data */
-					if (req->fmain.kp_stt[subPage_idx] == KP_STT_DATA) 
+					for (subPage = 0; subPage < np->nr_subpages_per_page; subPage++) 
 					{
-						bdbm_phyaddr_t phyaddr; 
-						uint64_t sp_offs;					
+						/* move subpages that contain new data */
+						if (req->fmain.kp_stt[subPage_idx] == KP_STT_DATA) 
+						{
+							bdbm_phyaddr_t phyaddr; 
+							uint64_t sp_offs;					
 
-						req->logaddr.lpa[subPage_idx] = ((uint64_t*)req->foob.data)[subPage_idx];
-					}
-					else if (req->fmain.kp_stt[subPage_idx] == KP_STT_HOLE) 
-					{
-						((uint64_t*)req->foob.data)[subPage_idx] = -1;
-						req->logaddr.lpa[subPage_idx] = -1;
-					} 
-					else 
-					{
-						bdbm_error (" invalid else");
-						bdbm_bug_on (1);
-					}
+							req->logaddr.lpa[subPage_idx] = ((uint64_t*)req->foob.data)[subPage_idx];
+						}
+						else if (req->fmain.kp_stt[subPage_idx] == KP_STT_HOLE) 
+						{
+							((uint64_t*)req->foob.data)[subPage_idx] = -1;
+							req->logaddr.lpa[subPage_idx] = -1;
+						} 
+						else 
+						{
+							bdbm_error (" invalid else");
+							bdbm_bug_on (1);
+						}
 
-					subPage_idx++;
+						subPage_idx++;
+					}
 				}
-			}
-	
-			req->ptr_hlm_req = (void*)hlm_gc_w;
 		
-			if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, dst_index, &req->phyaddr) != 0) {
-				bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
-				bdbm_bug_on (1);
+				req->ptr_hlm_req = (void*)hlm_gc_w;
+			
+				if (bdbm_page_ftl_get_free_ppa_gc (bdi, unit, 0, &req->phyaddr) != 0) {
+					bdbm_error ("bdbm_page_ftl_get_free_ppa failed");
+					bdbm_bug_on (1);
+				}
+
+				if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr, 1) != 0) 
+				{
+					bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
+					bdbm_bug_on (1);
+				}
+
+				/* send write reqs to llm */
+				hlm_gc_w->req_type = REQTYPE_GC_WRITE;
+				hlm_gc_w->nr_llm_reqs++;
+
+				if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) {
+					bdbm_error ("llm_make_req failed");
+					bdbm_bug_on (1);
+				}
+
+				uint64_t bypass = np->nr_subpages_per_page * np->nr_planes - req->dma;
+				p->bypass_write += bypass;
+				p->dma_write += req->dma;
 			}
-
-			if (bdbm_page_ftl_map_lpa_to_ppa (bdi, &req->logaddr, &req->phyaddr, 1) != 0) 
-			{
-				bdbm_error ("bdbm_page_ftl_map_lpa_to_ppa failed");
-				bdbm_bug_on (1);
-			}
-
-			/* send write reqs to llm */
-			hlm_gc_w->req_type = REQTYPE_GC_WRITE;
-			hlm_gc_w->nr_llm_reqs++;
-
-			if ((bdi->ptr_llm_inf->make_req (bdi, req)) != 0) {
-				bdbm_error ("llm_make_req failed");
-				bdbm_bug_on (1);
-			}
-
-
-			uint64_t bypass = np->nr_subpages_per_page * np->nr_planes - req->dma;
-			p->bypass_write += bypass;
-			p->dma_write += req->dma;
-
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-			// update accumulated copyback count 			
-			//uint32_t* copyback_count = (uint32_t*)(hlm_gc->llm_reqs[p->gc_meta_idx_start + unit].fmain.kp_ptr[0]);
-			//copyback_count[req->phyaddr.page_no] = p->dst_index;
-
-		#ifndef PER_PAGE_QUOTA
-			for (plane = 0; plane < np->nr_planes; plane++)
-			{
-				p->cached_copyback_info[(req->phyaddr.block_no + plane) * np->nr_pages_per_block + req->phyaddr.page_no] = p->dst_index;
-			}
-		#else
-			for (plane = 0; plane < np->nr_planes; plane++)
-			{
-				p->cached_copyback_info[(req->phyaddr.block_no + plane) * np->nr_pages_per_block + req->phyaddr.page_no] = p->new_quota;
-			}
-		#endif
-
-
-			if (unit == 0)
-			{
-			//	bdbm_msg("	write_page : %lld,  copyback count : %lld", req->phyaddr.page_no, p->dst_index);
-			}
-#endif	
 		}
 	}
-
 	p->gc_copy_count += p->gc_subpages_move_unit;
 	p->dst_offset = req->phyaddr.page_no * p->nr_punits;
-	
-#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-	if (req->phyaddr.page_no == np->nr_pages_per_block - 2)
+
+	if (valid_page_count >= p->required_subpage_count)
 	{
-		// need to flush copyback meta.
-		__bdbm_page_ftl_flush_meta(bdi,/*bGC_meta*/ 1);
+		p->src_valid_page_count -= p->required_subpage_count;
 	}
-#endif
+	else
+	{
+		p->src_valid_page_count = 0;
+	}
 	
-	//bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no,p->src_valid_page_count);
+	bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no, p->src_valid_page_count);
 
 	return 0;
 }

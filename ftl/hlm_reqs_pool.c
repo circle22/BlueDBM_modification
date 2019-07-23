@@ -493,7 +493,7 @@ static int __hlm_reqs_pool_create_write_req (
 	pg_end = BDBM_ALIGN_UP (br->bi_offset + br->bi_size, NR_KSECTORS_IN(KPAGE_SIZE)) / NR_KSECTORS_IN(KPAGE_SIZE);
 	bdbm_bug_on (pg_start >= pg_end);
 
-	__hlm_req_pool_update_count(1, pg_end - pg_start);
+//	__hlm_req_pool_update_count(1, pg_end - pg_start);
 
 	/* build llm_reqs */
 	nr_llm_reqs = BDBM_ALIGN_UP ((sec_end - sec_start), NR_KSECTORS_IN(pool->io_unit)) / NR_KSECTORS_IN(pool->io_unit);
@@ -773,7 +773,7 @@ uint64_t hlm_reqs_pool_compaction(
 	uint64_t* pCount)
 {
 	uint64_t subpage, unit;
-	uint64_t nr_punits = np->nr_units_per_channel * np->nr_channels;
+	uint64_t nr_punits = np->nr_units_per_ssd;
 
 	uint64_t src_subpage = 0;
 	uint64_t plane;
@@ -782,102 +782,65 @@ uint64_t hlm_reqs_pool_compaction(
 	bdbm_llm_req_t* dst_req;
 	bdbm_llm_req_t* src_req;
 
-	static uint64_t bCallOnce = 0;
-	if (bCallOnce == 0)
-	{
-		bCallOnce = 1;
-		// call reset func when first g.c start.
-
-		__hlm_reqs_pool_reset_count();	
-	}
-
-
-
-
 	for (unit = 0; unit < nr_punits; unit++)
 	{
 		dst_req = &dst->llm_reqs[dst_offset + unit];
 		dst_req->dma = 0;
-		hlm_reqs_pool_reset_fmain (&dst_req->fmain, BDBM_MAX_PAGES);
+		hlm_reqs_pool_reset_fmain(&dst_req->fmain, BDBM_MAX_PAGES);
 
 		for (plane = 0; plane < np->nr_planes; plane++)
-		{
-			uint64_t req_idx = plane*nr_punits + unit;
-	
-			src_req = &src->llm_reqs[req_idx];
-			dst_req->dma += src_req->dma;
-			
+		{			
 			for (subpage = 0; subpage < np->nr_subpages_per_page; subpage++)
 			{
 				uint64_t dst_subpage = plane*np->nr_subpages_per_page + subpage;
-
-				if (src_req->fmain.kp_stt[subpage] == KP_STT_DATA)
+				uint64_t src_idx = *pHead_idx;
+				
+				// partial page read data
+				while (src_idx != tail_idx)
 				{
-					// page read data
-					dst_req->fmain.kp_stt[dst_subpage] = src_req->fmain.kp_stt[subpage];
-					dst_req->fmain.kp_ptr[dst_subpage] = src_req->fmain.kp_ptr[subpage];
-					dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[subpage];
-					((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[subpage];
+					uint64_t data_copy = 0;
 
-
-	
-					if ( ((int64_t*)src_req->foob.data)[subpage] > 0x1FFFFFF)
+					if (src_idx == nr_punits*10) // check end index of buffered data
 					{
-						bdbm_msg(" 1. lpn : %llx, index : %lld, subpage: %lld", ((int64_t*)src_req->foob.data)[subpage], req_idx, subpage);
+						src_idx = 0; // move to start of buffered data.
 					}
 
-
-
-					valid_page_count++;
-				}
-				else
-				{
-					uint64_t src_idx = *pHead_idx;
-					// partial page read data
-					while (src_idx != tail_idx)
+					src_req = src->llm_reqs + src_idx;
+					
+					if (src_req->fmain.kp_stt[src_subpage] == KP_STT_DATA)
 					{
-						uint64_t data_copy = 0;
+						dst_req->fmain.kp_stt[dst_subpage] = src_req->fmain.kp_stt[src_subpage];
+						dst_req->fmain.kp_ptr[dst_subpage] = src_req->fmain.kp_ptr[src_subpage];
+						dst_req->logaddr.lpa[dst_subpage]  = src_req->logaddr.lpa[src_subpage];	
+						((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src_req->foob.data)[src_subpage];
 
-						if (src_idx == nr_punits*10) // check end index of buffered data
+						src_req->fmain.kp_stt[src_subpage] = KP_STT_HOLE;
+						(*pCount)--;
+
+						data_copy = 1;
+						dst_req->dma++;
+
+						valid_page_count++;
+
+						if ( ((int64_t*)src_req->foob.data)[src_subpage] > 0x1FFFFFF)
 						{
-							src_idx = nr_punits * np->nr_planes; // move to start of buffered data.
+							bdbm_msg(" 2. lpn : %llx, index : %lld, subpage: %lld", ((int64_t*)src_req->foob.data)[src_subpage], src_idx, src_subpage);
 						}
-						
-						if (src->llm_reqs[src_idx].fmain.kp_stt[src_subpage] == KP_STT_DATA)
-						{
-							dst_req->fmain.kp_stt[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_stt[src_subpage];
-							dst_req->fmain.kp_ptr[dst_subpage] = src->llm_reqs[src_idx].fmain.kp_ptr[src_subpage];
-							dst_req->logaddr.lpa[dst_subpage]  = src->llm_reqs[src_idx].logaddr.lpa[src_subpage];	
-							((int64_t*)dst_req->foob.data)[dst_subpage] = ((int64_t*)src->llm_reqs[src_idx].foob.data)[src_subpage];
+					}
 
-							src->llm_reqs[src_idx].fmain.kp_stt[src_subpage] = KP_STT_HOLE;
-							(*pCount)--;
+					src_subpage++;
+					if (src_subpage == np->nr_subpages_per_page)
+					{
+						src_subpage = 0;
+						src_idx++;
+					}
 
-							data_copy = 1;
-							dst_req->dma++;
-
-							valid_page_count++;
-
-							if ( ((int64_t*)src_req->foob.data)[src_subpage] > 0x1FFFFFF)
-							{
-								bdbm_msg(" 2. lpn : %llx, index : %lld, subpage: %lld", ((int64_t*)src_req->foob.data)[src_subpage], src_idx, src_subpage);
-							}
-						}
-
-						src_subpage++;
-						if (src_subpage == np->nr_subpages_per_page)
-						{
-							src_subpage = 0;
-							src_idx++;
-						}
-
-						if (data_copy != 0)
-						{
-							*pHead_idx = src_idx;
-							break;
-						}
-					}					
-				}
+					if (data_copy != 0)
+					{
+						*pHead_idx = src_idx;
+						break;
+					}
+				}					
 			}			
 			// single plane done.
 		}
