@@ -26,6 +26,7 @@ THE SOFTWARE.
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/syscalls.h>
+#include <linux/version.h>
 
 #include "debug.h"
 #include "umemory.h"
@@ -81,7 +82,12 @@ uint64_t bdbm_fread (bdbm_file_t file, uint64_t offset, uint8_t* data, uint64_t 
 	oldfs = get_fs ();
 	set_fs (get_ds());
 	while (len < size) {
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 		if ((ret = vfs_read (file, data + len, size - len, &offset)) == 0)
+#else
+		if ((ret = kernel_read (file, data + len, size - len, &offset)) == 0)
+#endif			
 			break;
 		/*if (len < size) {*/
 		/*bdbm_msg ("ret=%llu, len=%llu, offset=%llu", ret, len, offset);*/
@@ -103,7 +109,11 @@ uint64_t bdbm_fwrite (bdbm_file_t file, uint64_t offset, uint8_t* data, uint64_t
 	oldfs = get_fs ();
 	set_fs (get_ds ());
 	while (len < size) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 		if ((ret = vfs_write (file, data + len, size - len, &offset)) == 0)
+#else
+		if ((ret = kernel_write (file, data + len, size - len, &offset)) == 0)
+#endif
 			break;
 		offset += ret;
 		len += ret;
