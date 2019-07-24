@@ -202,7 +202,8 @@ uint32_t host_blkdev_register_device (bdbm_drv_info_t* bdi, make_request_fn* fn)
 		bdbm_device.queue->limits.discard_granularity = KERNEL_PAGE_SIZE;
 		bdbm_device.queue->limits.max_discard_sectors = UINT_MAX;
 		/*bdbm_device.queue->limits.discard_zeroes_data = 1;*/
-		queue_flag_set_unlocked (QUEUE_FLAG_DISCARD, bdbm_device.queue);
+		//queue_flag_set_unlocked (QUEUE_FLAG_DISCARD, bdbm_device.queue);
+		blk_queue_discard(bdbm_device.queue);
 		bdbm_msg ("TRIM is enabled");
 	} else {
 		bdbm_msg ("TRIM is disabled");

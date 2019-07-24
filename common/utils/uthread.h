@@ -44,7 +44,12 @@ typedef struct {
 	/* thread management */
 	bdbm_mutex_t thread_done;
 	wait_queue_head_t wq;
+
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,12,14)
 	wait_queue_t* wait;
+#else
+	wait_queue_entry_t* wait;
+#endif	
 	struct task_struct* thread;
 	
 	/* user management */
