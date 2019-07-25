@@ -1381,12 +1381,10 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	static uint64_t victim_blk_no[4] = {0, };
 
 	uint64_t index;
-	uint64_t anMax_invalid_pages[MAX_COPY_BACK];
 	bdbm_abm_block_t* apVictim[MAX_COPY_BACK]; 
 
 	for (index = 0; index < MAX_COPY_BACK; index++)
 	{
-		anMax_invalid_pages[index] = 0;
 		apVictim[index] = NULL;
 	}
 
@@ -1403,38 +1401,42 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 		return victim;
 	}
 
-	bdbm_abm_list_for_each_dirty_block (pos, p->bai, 0, 0) 
-	{
-		uint64_t invalid_pages = 0;
-		uint64_t blk_info;
-		bdbm_abm_block_t* block = bdbm_abm_fetch_dirty_block (pos);
-
-		invalid_pages = p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER]; 	
-		for (plane = 1; plane < np->nr_planes; plane++)
-		{
-			pos = pos->next; // next plane;
-		}
-
-		blk_info = block->unit_no % np->nr_groups_per_die;
-
-		if (apVictim[blk_info] == NULL)
-		{
-			apVictim[blk_info] = block;
-			anMax_invalid_pages[blk_info] = invalid_pages;
-		}
-		else if (invalid_pages > anMax_invalid_pages[blk_info])
-		{
-			apVictim[blk_info] = block;
-			anMax_invalid_pages[blk_info] = invalid_pages;
-		}
-	}
 
 	for (index = 0; index < np->nr_groups_per_die; index++)
 	{	
+		uint64_t max_invalid_pages = 0;
+		bdbm_abm_list_for_each_dirty_block (pos, p->bai, 0, index) 
+		{
+			uint64_t invalid_pages = 0;
+			uint64_t blk_info;
+			bdbm_abm_block_t* block = bdbm_abm_fetch_dirty_block (pos);
+
+			invalid_pages = p->bai->pnr_blk_invalid[block->block_no/PLANE_NUMBER]; 	
+			for (plane = 1; plane < np->nr_planes; plane++)
+			{
+				pos = pos->next; // next plane;
+			}
+
+			blk_info = block->unit_no % np->nr_groups_per_die;
+			if (blk_info != index)
+				bdbm_msg("error  %d is diff %d", blk_info, index)
+			
+			if (apVictim[index] == NULL)
+			{
+				apVictim[index] = block;
+				max_invalid_pages = invalid_pages;
+			}
+			else if (invalid_pages > max_invalid_pages)
+			{
+				apVictim[index] = block;
+				max_invalid_pages = invalid_pages;
+			}
+		}
+	
 		valid_victim[index] = 1;
 		victim_blk_no[index] = apVictim[index]->block_no;
 
-		bdbm_msg("group : %d, src blk : %d  invalid page : %d", index, apVictim[index]->block_no, anMax_invalid_pages[index]);
+		bdbm_msg("group : %d, src blk : %d  invalid page : %d", index, apVictim[index]->block_no, max_invalid_pages);
 	}
 
 	return apVictim[group_no];
@@ -2107,7 +2109,7 @@ uint64_t bdbm_page_ftl_gc_read_partial_page(bdbm_drv_info_t* bdi, uint64_t unit,
 			}
 			else
 			{
-				p->external_partial_valid_count += valid_count; // Dieº° ºÒ±ÕÇü.
+				p->external_partial_valid_count += valid_count; // Die?? ?Ò±???.
 			}
 
 			req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
@@ -2317,7 +2319,8 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 
 		if ((cur_valid == 0) || (p->buffered_subpage_count >= p->required_subpage_count))
 		{
-			bdbm_msg("----Read Issue Done---- cur valid page %d", p->src_valid_page_count);
+			bdbm_msg("----Read Issue Done---- cur valid page %d, buffered %d", p->src_valid_page_count, p->buffered_subpage_count);
+			break;
 		}
 	}
 	
@@ -2372,7 +2375,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 						} 
 						else 
 						{
-							bdbm_error (" invalid else");
+							bdbm_error (" invalid else, unit %d, %d,  %d", unit, subPage,  req->fmain.kp_stt[subPage_idx]);
 							bdbm_bug_on (1);
 						}
 

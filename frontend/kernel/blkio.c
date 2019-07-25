@@ -78,8 +78,8 @@ static bdbm_blkio_req_t* __get_blkio_req (struct bio *bio)
 
 	/* get the type of the bio request */
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,8,0)
-	if (bio_op(bio) & REQ_OP_DISCARD)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,8,0)
+	if (bio_op(bio) == REQ_OP_DISCARD)
 		br->bi_rw = REQTYPE_TRIM;
 	else if (bio_op(bio) == REQ_OP_READ)
 		br->bi_rw = REQTYPE_READ;
@@ -147,7 +147,7 @@ static void __free_blkio_req (bdbm_blkio_req_t* br)
 		bdbm_free_atomic (br);
 }
 
-#if 0
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,0)
 static void __host_blkio_make_request_fn (
 	struct request_queue *q, 
 	struct bio *bio)
