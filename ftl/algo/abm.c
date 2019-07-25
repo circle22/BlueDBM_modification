@@ -233,6 +233,7 @@ bdbm_abm_info_t* bdbm_abm_create (
 	bai->nr_bad_blks = 0;
 
 	bai->nr_gc_ondemand_threshold = np->nr_channels * np->nr_units_per_channel * np->nr_planes* GC_ONDEMAND_THRESHOLD;
+	bai->nr_gc_proactive_threshold = np->nr_channels * np->nr_units_per_channel * np->nr_planes* GC_PROACTIVE_THRESHOLD;
 	bai->nr_gc_background_threshold = np->nr_channels * np->nr_units_per_channel * np->nr_planes* GC_BACKGROUND_THRESHOLD;
 	bai->pnr_blk_invalid = (uint32_t*)bdbm_zmalloc (sizeof (uint32_t) * np->nr_blocks_per_die);
 

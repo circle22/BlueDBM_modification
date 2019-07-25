@@ -1066,8 +1066,10 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			if ( p->gc_copy_count != 0)
 			{
 				p->host_update_count += (np->nr_subpages_per_block * p->nr_punits * np->nr_planes);
-				bdbm_msg("T %lld  I %lld D %lld P %lld R %lld  %lld : %lld  %4lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count, p->host_update_count, (p->host_update_count+p->gc_copy_count)*1000/p->host_update_count);	
-			}
+			//	bdbm_msg("T %lld  I %lld D %lld P %lld R %lld  %lld : %lld  %4lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count, p->host_update_count, (p->host_update_count+p->gc_copy_count)*1000/p->host_update_count);	
+				bdbm_msg(" host active %d, %d, %d, %d", p->ac_bab[0]->block_no, p->ac_bab[1]->block_no, p->ac_bab[2]->block_no, p->ac_bab[3]->block_no);		
+
+	}
 #ifdef PER_BLOCK_QUOTA			
 			p->blk_quota_data[p->ac_bab[0]->block_no].copyback_quota = p->initial_quota;
 #endif
@@ -1131,11 +1133,6 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 				
 		/* ok; go ahead with 0 offset */ 
 		p->gc_dst_blk_offs[copy_count][unit] = 0;
-
-		if (unit == 0)
-		{
-//			bdbm_msg("Dest blk : %llu", b->block_no);			
-		}
 	}
 
 	/* get the physical offset of the active blocks */
@@ -1315,20 +1312,29 @@ uint32_t bdbm_page_ftl_map_lpa_to_ppa (
 		uint64_t nr_free_blks = bdbm_abm_get_nr_free_blocks (p->bai);
 
 		/* invoke gc when remaining free blocks are less than 1% of total blocks */
-		if (nr_free_blks <= p->bai->nr_gc_ondemand_threshold)
+		if (nr_free_blks < p->bai->nr_gc_ondemand_threshold)
 		{
-			if (p->token_mode == 0)
+			if (p->token_mode != 2)
 			{
-				p->token_mode = 1;
+				p->token_mode = 2;
 				p->token_count = 0;
 			}
 			// on demand GC.
 			return ON_DEMAND_GC;
 		}
-		else if (nr_free_blks < p->bai->nr_gc_background_threshold)
+		else if (nr_free_blks <= p->bai->nr_gc_proactive_threshold)
+		{
+			if (p->token_mode != 1)
+			{
+				p->token_mode = 1;
+				p->token_count = 0;		
+			}
+			// back ground GC.
+			return BACKGROUND_GC;
+		}
+		else if (nr_free_blks <= p->bai->nr_gc_background_threshold)
 		{
 			p->token_mode = 0;
-			
 			// back ground GC.
 			return BACKGROUND_GC;
 		}
@@ -1373,9 +1379,7 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS (bdi);
 
 	struct list_head* pos;
-
 	uint64_t plane;
-	uint64_t full_invalid_pages = np->nr_subpages_per_block * np->nr_planes * p->nr_dies; 
 
 	static uint64_t valid_victim[4] = {0,};
 	static uint64_t victim_blk_no[4] = {0, };
@@ -1432,11 +1436,14 @@ bdbm_abm_block_t* __bdbm_page_ftl_victim_selection_greedy (
 				max_invalid_pages = invalid_pages;
 			}
 		}
-	
-		valid_victim[index] = 1;
+
+		if ((index != 0) || (p->nr_dies != 1))
+		{
+			valid_victim[index] = 1;
+		}	
 		victim_blk_no[index] = apVictim[index]->block_no;
 
-		bdbm_msg("group : %d, src blk : %d  invalid page : %d", index, apVictim[index]->block_no, max_invalid_pages);
+//		bdbm_msg("group : %d, src blk : %d  invalid page : %d", index, apVictim[index]->block_no, max_invalid_pages);
 	}
 
 	return apVictim[group_no];
@@ -1549,9 +1556,18 @@ void bdbm_page_ftl_alloc_srcblk(bdbm_drv_info_t* bdi)
 	}
 	
 	p->generated_token /= np->nr_pages_per_block;
-	p->generated_token--;
+	if (p->token_mode == 1)
+	{
+		p->generated_token++;
+	}
+	else if (p->token_mode == 2)
+	{
+		p->generated_token--;
+	}
+	
+	bdbm_msg("GC %lld,V %lld,U %lld,M %lld,G %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,p->generated_token, bdbm_abm_get_nr_free_blocks (p->bai)); 
 
-	bdbm_msg("GC %lld,V %lld,U %lld,M %lld, %lld", p->gc_count, p->src_valid_page_count, p->utilization, p->gc_mode,bdbm_abm_get_nr_free_blocks (p->bai)); 
+	bdbm_msg("   src blk, %d, %d, %d, %d", p->gc_src_bab[0]->block_no, p->gc_src_bab[1]->block_no, p->gc_src_bab[2]->block_no, p->gc_src_bab[3]->block_no); 
 }
 
 void check_valid_bitmap(bdbm_abm_block_t* blk)
@@ -2219,9 +2235,7 @@ uint64_t bdbm_page_ftl_gc_read_pages(bdbm_drv_info_t* bdi, uint64_t unit, uint64
 
 			req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
 			p->buffered_subpage_count += valid_count;
-
-			bdbm_msg("  read pages: %lld,%lld, %lld, valid %lld, buffered %lld", plane, unit, page+page_offs, valid_count, p->buffered_subpage_count);
-			
+//			bdbm_msg("  read pages: %lld,%lld, %lld, valid %lld, buffered %lld", plane, unit, page+page_offs, valid_count, p->buffered_subpage_count);			
 			break;
 		}
 	}
@@ -2284,11 +2298,9 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 		}	
 	}
 
-
 	// 2. Read Valid Page.
 	uint64_t ch, way, group;
 	uint64_t cur_valid;
-
 	average_valid = ((p->src_valid_page_count + p->nr_punits - 1) / p->nr_punits) / np->nr_planes;
 
 	while(1)
@@ -2311,7 +2323,7 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 
 				if (p->buffered_subpage_count >= p->required_subpage_count)
 				{
-					p->src_unit_hand = unit + 1;
+					p->src_unit_hand = cur_unit + 1;
 					break;
 				}			
 			}
@@ -2319,7 +2331,7 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi)
 
 		if ((cur_valid == 0) || (p->buffered_subpage_count >= p->required_subpage_count))
 		{
-			bdbm_msg("----Read Issue Done---- cur valid page %d, buffered %d", p->src_valid_page_count, p->buffered_subpage_count);
+//			bdbm_msg("----Read Issue Done---- cur valid page %d, buffered %d", p->src_valid_page_count, p->buffered_subpage_count);
 			break;
 		}
 	}
@@ -2337,18 +2349,15 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 	bdbm_llm_req_t* req = NULL;
 	bdbm_abm_block_t* src_blk = NULL;
 
-//	bdbm_msg("before head :%lld %lld", p->partial_head, p->buffered_subpage_count);
 	uint64_t valid_page_count = hlm_reqs_pool_compaction(hlm_gc_w, hlm_gc, np, p->dst_offset, &(p->partial_head), p->partial_tail, &p->buffered_subpage_count);
-//	bdbm_msg("after head :%lld %lld", p->partial_head, p->buffered_subpage_count);
 
 	for (group = 0; group < np->nr_groups_per_die; group++)
 	{
-		for (way = 0; way < np->nr_units_per_channel; way++)
+		for (way = 0; way < np->nr_ways; way++)
 		{
 			for (ch = 0; ch < np->nr_channels; ch++)
 			{	
 				uint64_t subPage_idx = 0;
-				
 				uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die + group;
 
 				// Write page
@@ -2423,7 +2432,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi)
 		p->src_valid_page_count = 0;
 	}
 	
-	bdbm_msg("write page off : %lld, valid page count :%lld", req->phyaddr.page_no, p->src_valid_page_count);
+//	bdbm_msg("GC write page off : %lld, valid page count :%lld, token %d", req->phyaddr.page_no, p->src_valid_page_count, p->token_count);
 
 	return 0;
 }

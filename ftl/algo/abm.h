@@ -92,6 +92,7 @@ typedef struct {
 	uint64_t nr_bad_blks;
 
 	uint64_t nr_gc_ondemand_threshold;
+	uint64_t nr_gc_proactive_threshold;
 	uint64_t nr_gc_background_threshold;
 	uint64_t anr_free_blks[8][8];
 	uint32_t* pnr_blk_invalid;

@@ -728,6 +728,7 @@ uint32_t hlm_nobuf_flush_buffer(bdbm_drv_info_t* bdi)
 #endif
 		{
 			__hlm_flush_buffer(bdi);
+//			bdbm_msg("Host flush  %d, %d", p->flush_lpn_count, ftl->get_token(bdi));
 
 #ifdef FLOW_CTRL						
 			ftl->consume_token(bdi, p->flush_lpn_count);
