@@ -673,14 +673,8 @@ void __hlm_nobuf_end_gcio_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)
 {
 	bdbm_hlm_req_gc_t* hr_gc = (bdbm_hlm_req_gc_t* )lr->ptr_hlm_req;
 
-	atomic64_inc (&hr_gc->nr_llm_reqs_done);
+	atomic64_inc (&hr_gc->anr_llm_reqs_done[lr->group]);
 	lr->req_type |= REQTYPE_DONE;
-
-/*	will not use semaphore.
-	if (atomic64_read (&hr_gc->nr_llm_reqs_done) == hr_gc->nr_llm_reqs) {
-		bdbm_sema_unlock (&hr_gc->done);
-	}
-*/	
 }
 
 void hlm_nobuf_end_req (bdbm_drv_info_t* bdi, bdbm_llm_req_t* lr)

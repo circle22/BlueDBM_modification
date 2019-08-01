@@ -771,7 +771,7 @@ uint64_t hlm_reqs_pool_compaction(
 	uint64_t* pCount)
 {
 	uint64_t subpage, unit;
-	uint64_t nr_punits = np->nr_units_per_ssd;
+	uint64_t nr_punits = np->nr_units_per_ssd / np->nr_groups_per_die;
 
 	uint64_t src_subpage = 0;
 	uint64_t plane;

@@ -1,94 +1,13 @@
-   ---- way_no Matches (111 in 10 files) ----
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):uint64_t __get_block_idx (bdbm_device_params_t* np, uint64_t channel_no, uint64_t way_no, uint64_t block_no) {
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		way_no * np->nr_blocks_per_die + 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		bai->blocks[loop].way_no = __get_way_ofs(np, loop); 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_msg("ch %d, way %d, unit %d, blk %d, loop %d",  bai->blocks[loop].channel_no, bai->blocks[loop].way_no, bai->blocks[loop].unit_no, bai->blocks[loop].block_no, loop);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t way_no,
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		__get_block_idx (bai->np, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	bai->anr_free_blks[blk->channel_no][blk->way_no]++;
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t way_no,
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		__get_block_idx (bai->np, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t unit_no = bai->np.nr_groups_per_die * way_no + block_no % bai->np.nr_groups_per_die;
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_msg ("%llu %llu %llu", channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	if (blk->channel_no != channel_no || blk->way_no != way_no || blk->block_no != block_no) {
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			blk->channel_no, blk->way_no, blk->block_no,
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			blk->way_no, 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	if ((channel_no == 0) && (way_no == 0))
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	if ((channel_no == 0) && (way_no == 0))
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	if ((channel_no == 0) && (way_no == 0))
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t way_no, 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		__get_block_idx (bai->np, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_msg ("%llu %llu %llu", channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	if (blk->channel_no != channel_no || blk->way_no != way_no || blk->block_no != block_no) {
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			blk->channel_no, blk->way_no, blk->block_no,
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t way_no, 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	b = bdbm_abm_get_block (bai, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):			b->status, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t way_no, 
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	//bdbm_msg("abm_invalidate: %lld,%lld,%lld,%lld,%lld", channel_no, way_no, block_no, page_no, subpage_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	b = bdbm_abm_get_block (bai, channel_no, way_no, block_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):	bdbm_bug_on (b->way_no != way_no);
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		pos += bdbm_fread (fp, pos, (uint8_t*)&bai->blocks[i].way_no, sizeof(bai->blocks[i].way_no));
-Abm.c (d:\work\github\bluedbm_modification\ftl\algo):		pos += bdbm_fwrite (fp, pos, (uint8_t*)&bai->blocks[i].way_no, sizeof(bai->blocks[i].way_no));
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):	uint32_t way_no;
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):bdbm_abm_block_t* bdbm_abm_get_block (bdbm_abm_info_t* bai, uint64_t channel_no, uint64_t way_no, uint64_t block_no);
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):void bdbm_abm_erase_block (bdbm_abm_info_t* bai, uint64_t channel_no, uint64_t way_no, uint64_t block_no, uint8_t is_bad);
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):void bdbm_abm_make_dirty_blk (bdbm_abm_info_t* bai, uint64_t channel_no, uint64_t way_no, uint64_t block_no);
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):void bdbm_abm_invalidate_page (bdbm_abm_info_t* bai, uint64_t channel_no, uint64_t way_no, uint64_t block_no, uint64_t page_no, uint64_t subpage_no);
-Abm.h (d:\work\github\bluedbm_modification\ftl\algo):void bdbm_abm_set_to_dirty_block (bdbm_abm_info_t* bai, uint64_t channel_no, uint64_t way_no, uint64_t block_no);
-Bdbm_drv.h (d:\work\github\bluedbm_modification\include):	(p->channel_no * bdi->parm_dev.nr_units_per_channel + p->way_no * bdi->parm_dev.nr_groups_per_die + (p->block_no/bdi->parm_dev.nr_planes) % bdi->parm_dev.nr_groups_per_die)
-Bdbm_drv.h (d:\work\github\bluedbm_modification\include):	uint64_t way_no;
-Dev_proxy.c (d:\work\github\bluedbm_modification\frontend\nvme):			r->phyaddr.way_no, 
-Dev_proxy.c (d:\work\github\bluedbm_modification\frontend\nvme):			r->phyaddr.way_no, 
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	uint64_t way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	ramssd_addr += dev_ramssd_get_die_size (ri) * way_no;
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	uint64_t way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	ramssd_addr += dev_ramssd_get_die_size (ri) * way_no;
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	uint64_t way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, way_no, block_no, page_no)) == NULL) {
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):				bdbm_msg ("ch: %lld, way: %lld, block =%llu page=%llu", channel_no, way_no, block_no, page_no);
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):				bdbm_msg ("   ch: %lld, way: %lld, block =%llu page=%llu, loop:%llu", channel_no, way_no, block_no, page_no, loop);
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	uint64_t way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	if ((ptr_ramssd_addr = __ramssd_page_addr (ri, channel_no, way_no, block_no, page_no)) == NULL) {
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):	uint64_t way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):			(ri, channel_no, way_no, block_no)) == NULL) {
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):			ptr_req->phyaddr.way_no, 
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):				ptr_req->phyaddr.way_no,
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):				ptr_req->phyaddr.way_no, 
-Dev_ramssd.c (d:\work\github\bluedbm_modification\devices\ramdrive):		bdbm_error ("invalid command :%d ch:%lld, way:%lld", ptr_req->req_type, ptr_req->phyaddr.channel_no, ptr_req->phyaddr.way_no);
-Hlm_nobuf.c (d:\work\github\bluedbm_modification\ftl):			  (llm_req->phyaddr.way_no == np->nr_units_per_channel - 1))
-Llm_mq.c (d:\work\github\bluedbm_modification\ftl)://			bdbm_msg("     llm make req : %d, %d, %d, %d, %d,  %d", r->phyaddr.punit_id, r->phyaddr.way_no, r->phyaddr.block_no, r->phyaddr.page_no, r->logaddr.lpa[0], r->dma);
-Llm_mq.c (d:\work\github\bluedbm_modification\ftl):			x->way_no == y->way_no &&
-Llm_mq.c (d:\work\github\bluedbm_modification\ftl):					dst_lr->phyaddr.way_no = cur_lr->phyaddr.way_no;
-Llm_rmq.c (d:\work\github\bluedbm_modification\ftl):				r->phyaddr->way_no,
-No_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	ppa->way_no = lpa >> (log2_blocks + log2_pages);
-No_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	ppa->way_no = ppa->way_no & (np->nr_units_per_channel - 1);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		me[loop].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			bdbm_msg("index: %lld, reqType:%x, ch:%lld, way:%lld, GC %lld", index, llm_reqs[index].req_type, llm_reqs[index].phyaddr.channel_no, llm_reqs[index].phyaddr.way_no, p->gc_count);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	ppa->way_no = b->way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	bdbm_msg("ch %d, way %d, unit %d, blk %d, page %d", ppa->channel_no, ppa->way_no, ppa->punit_id, ppa->block_no, ppa->page_no);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	bdbm_bug_on (ppa->way_no != curr_way);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	ppa->way_no = b->way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):					phyaddr->way_no,
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):					me->phyaddr.way_no,
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			me->phyaddr.way_no = phyaddr->way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			phyaddr->way_no = 0;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			phyaddr->way_no = me->phyaddr.way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):					me->phyaddr.way_no,
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			req->phyaddr.way_no = src_blk->way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):				bdbm_abm_erase_block (p->bai, src_blk->channel_no, src_blk->way_no, src_blk->block_no + plane, /*is bad*/ 0);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_msg("VALID_BITMAP_INCONSISTENCY: %lld, %lld, %lld, exp:%lld, real:%lld", blk->channel_no, blk->way_no, blk->block_no, expected_valid_page, count);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			req->phyaddr.way_no = src_blk[plane].way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	req->phyaddr.way_no = src_blk[plane].way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		req->phyaddr.way_no = src_blk[plane].way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):					if ( (phyaddr.block_no == src_blk->block_no) && (phyaddr.channel_no == src_blk->channel_no) && (phyaddr.way_no == src_blk->way_no))
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):						bdbm_msg (" lpa : %lld, org ch: %lld,%lld,%lld,%d", req->logaddr.lpa[subPage], src_blk->channel_no, src_blk->way_no, src_blk->block_no, src_blk->info);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):						bdbm_msg (" 			new ch: %lld,%lld,%lld, page: %lld", phyaddr.channel_no, phyaddr.way_no, phyaddr.block_no, phyaddr.page_no);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):				b->way_no, 
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_bug_on (b->way_no != j);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			r->phyaddr.way_no = b->way_no;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		bdbm_abm_erase_block (p->bai, b->channel_no, b->way_no, b->block_no, ret);
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		me[i].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
-Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):		me[i].phyaddr.way_no = PFTL_PAGE_INVALID_ADDR;
+---- dst_offset Matches (12 in 3 files) ----
+Hlm_reqs_pool.c (d:\work\github\bluedbm_modification\ftl):	uint64_t dst_offset)
+Hlm_reqs_pool.c (d:\work\github\bluedbm_modification\ftl):		hlm_reqs_pool_reset_fmain (&dst->llm_reqs[dst_offset + unit].fmain, BDBM_MAX_PAGES);
+Hlm_reqs_pool.c (d:\work\github\bluedbm_modification\ftl):		dst_req = &dst->llm_reqs[dst_offset + unit];
+Hlm_reqs_pool.c (d:\work\github\bluedbm_modification\ftl):	uint64_t dst_offset,
+Hlm_reqs_pool.c (d:\work\github\bluedbm_modification\ftl):		dst_req = &dst->llm_reqs[dst_offset + unit];
+Hlm_reqs_pool.h (d:\work\github\bluedbm_modification\ftl):void hlm_reqs_pool_copy(bdbm_hlm_req_gc_t* dst, bdbm_hlm_req_gc_t* src, bdbm_device_params_t* np, uint64_t dst_offset);
+Hlm_reqs_pool.h (d:\work\github\bluedbm_modification\ftl):uint64_t hlm_reqs_pool_compaction(bdbm_hlm_req_gc_t* dst, bdbm_hlm_req_gc_t* src, bdbm_device_params_t* np, uint64_t dst_offset, uint64_t* pHead_idx, uint64_t tail_idx, uint64_t* pCount);
+Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t dst_offset;	
+Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	p->dst_offset = 0;
+Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	uint64_t valid_page_count = hlm_reqs_pool_compaction(hlm_gc_w, hlm_gc, np, p->dst_offset, &(p->partial_head), p->partial_tail, &p->buffered_subpage_count);
+Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):			req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
+Page_ftl.c (d:\work\github\bluedbm_modification\ftl\algo):	p->dst_offset = req->phyaddr.page_no * p->nr_punits;

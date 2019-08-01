@@ -193,6 +193,7 @@ typedef struct {
 	uint32_t req_type; /* read, write, or trim */
 	uint8_t ret;	/* old for GC */
 	uint8_t dma;	/* need to do DMA or not */
+	uint8_t group;
 	void* ptr_hlm_req;
 	void* ptr_qitem;
 	bdbm_sema_t* done;	/* maybe used by applications that require direct notifications from an interrupt handler */
@@ -245,8 +246,11 @@ typedef struct {
 /* a high-level request for gc */
 typedef struct {
 	uint32_t req_type;
-	uint64_t nr_llm_reqs;
-	atomic64_t nr_llm_reqs_done;
+//	uint64_t nr_llm_reqs;
+//	atomic64_t nr_llm_reqs_done;
+	uint64_t anr_llm_reqs[4];
+	atomic64_t anr_llm_reqs_done[4];
+
 	bdbm_llm_req_t* llm_reqs;
 	bdbm_sema_t done;
 } bdbm_hlm_req_gc_t;
