@@ -246,8 +246,9 @@ typedef struct {
 /* a high-level request for gc */
 typedef struct {
 	uint32_t req_type;
-//	uint64_t nr_llm_reqs;
-//	atomic64_t nr_llm_reqs_done;
+	uint64_t nr_llm_reqs;
+	atomic64_t nr_llm_reqs_done;
+
 	uint64_t anr_llm_reqs[4];
 	atomic64_t anr_llm_reqs_done[4];
 

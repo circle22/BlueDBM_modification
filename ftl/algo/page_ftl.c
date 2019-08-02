@@ -49,14 +49,6 @@ THE SOFTWARE.
 #include "algo/abm.h"
 #include "algo/page_ftl.h"
 
-#ifdef COPYBACK_QUOTA
-	#ifdef PER_PAGE_COPYBACK_MANAGEMENT
-		#define PER_PAGE_QUOTA
-	#else
-		#define PER_BLOCK_QUOTA
-	#endif
-#endif
-
 /* FTL interface */
 bdbm_ftl_inf_t _ftl_page_ftl = {
 	.ptr_private = NULL,
@@ -90,7 +82,7 @@ enum BDBM_PFTL_PAGE_STATUS {
 enum BDBM_GC_STATE {
 	GC_READ_STATE = 0,
 	GC_WRITE_STATE = 1,
-	GC_STATE_NUM = 0,
+	GC_STATE_NUM = 2
 };
 
 typedef struct {
@@ -103,16 +95,6 @@ typedef struct {
 	uint32_t threshold_copyback;
 	uint32_t proportion;
 } blk_distribution_info; 
-
-#ifdef COPYBACK_QUOTA
-typedef struct {	
-	uint32_t threshold_copyback;
-	uint32_t diminishing_quota;
-#ifdef PER_BLOCK_QUOTA	
-	uint32_t copyback_quota;			
-#endif
-} quota_info;
-#endif
 
 typedef struct {
 	bdbm_abm_info_t* bai;
@@ -149,7 +131,8 @@ typedef struct {
 
 	uint64_t src_valid;
 	uint64_t src_valid_page_count;
-	uint64_t src_unit_hand[4];
+//	uint64_t src_unit_hand[4];
+	uint64_t src_unit_hand;
 	uint64_t src_plane_hand;	
 	uint64_t src_unit_idx[PLANE_NUMBER][64];
 	uint64_t src_plane_idx[PLANE_NUMBER][64];	
@@ -159,25 +142,13 @@ typedef struct {
 	uint64_t partial_head;
 	uint64_t partial_tail;
 	uint64_t required_subpage_count;
+	uint64_t buffered_subpage_count;
 
 	uint64_t erase_idx_start;
 	uint64_t host_meta_idx_start;
 	uint64_t gc_meta_idx_start;
 	uint64_t meta_load_idx_start;
 	uint8_t* cached_copyback_info;
-
-#ifdef COPYBACK_QUOTA
-	uint32_t initial_quota;
-	uint32_t new_quota; // used for per page quota.
-
-	blk_distribution_info distribution_info[10];
-
-	uint32_t quota_to_dstIdx[13];
-	uint32_t dstIdx_to_quota[13];
-
-	quota_info* blk_quota_data;
-#endif
-
 
 	uint64_t dst_offset;	
 	uint64_t dst_index;	
@@ -802,8 +773,6 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 	ppa->page_no = p->curr_page_ofs;
 	ppa->punit_id = BDBM_GET_PUNIT_ID (bdi, ppa);
 
-//	bdbm_msg("ch %d, way %d, unit %d, blk %d, page %d", ppa->channel_no, ppa->way_no, ppa->punit_id, ppa->block_no, ppa->page_no);
-
 	/* check some error cases before returning the physical address */
 	bdbm_bug_on (ppa->channel_no != curr_channel);
 	bdbm_bug_on (ppa->way_no != curr_way);
@@ -843,10 +812,7 @@ uint32_t bdbm_page_ftl_get_free_ppa (
 			//	bdbm_msg("T %lld  I %lld D %lld P %lld R %lld  %lld : %lld  %4lld", p->gc_copy_count, p->internal_copy_count, p->external_die_difference_count, p->external_partial_valid_count, p->external_refresh_count, p->internal_copy_count *10000/p->gc_copy_count, p->host_update_count, (p->host_update_count+p->gc_copy_count)*1000/p->host_update_count);	
 				bdbm_msg(" host active %d, %d, %d, %d", p->ac_bab[0]->block_no, p->ac_bab[1]->block_no, p->ac_bab[2]->block_no, p->ac_bab[3]->block_no);		
 
-	}
-#ifdef PER_BLOCK_QUOTA			
-			p->blk_quota_data[p->ac_bab[0]->block_no].copyback_quota = p->initial_quota;
-#endif
+			}
 		}
 	} else {
 		/*bdbm_msg ("curr_puid = %llu", p->curr_puid);*/
@@ -1453,7 +1419,8 @@ uint64_t bdbm_page_ftl_gc_read_pages(bdbm_drv_info_t* bdi, uint64_t unit, uint64
 
 			req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
 			p->buffered_subpage_count += valid_count;
-//			bdbm_msg("  read pages: %lld,%lld, %lld, valid %lld, buffered %lld", plane, unit, page+page_offs, valid_count, p->buffered_subpage_count);			
+
+			bdbm_msg("  read pages: group%lld, page %lld, valid %lld, buffered %lld", group, page+page_offs, valid_count, p->buffered_subpage_count);			
 			break;
 		}
 	}
@@ -1529,22 +1496,24 @@ uint32_t bdbm_page_ftl_gc_read_state_adv(bdbm_drv_info_t* bdi, uint64_t group)
 		{
 			for (unit = 0; unit < np->nr_units_per_ssd; unit++)
 			{
-				uint64_t cur_unit = (p->src_unit_hand[group] + unit);
+				//uint64_t cur_unit = (p->src_unit_hand[group] + unit);
+				uint64_t cur_unit = (p->src_unit_hand + unit);
 				if (cur_unit >= np->nr_units_per_ssd)
 				{
 					cur_unit -= np->nr_units_per_ssd;
 				}
-				
-//				group = cur_unit % np->nr_groups_per_die;
+/*				
+				group = cur_unit % np->nr_groups_per_die;
 				if ((cur_unit % np->nr_groups_per_die) != group) 
 				{
 					continue;
 				}
-				
+*/				
 				cur_valid += bdbm_page_ftl_gc_read_pages(bdi, cur_unit, plane, group);
 
 				if (p->buffered_subpage_count >= p->required_subpage_count*(group+1))
 				{
+					//p->src_unit_hand[group] = cur_unit + 1;
 					p->src_unit_hand = cur_unit + 1;
 					break;
 				}			
@@ -1578,7 +1547,7 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi, uint64_t group)
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{	
 			uint64_t subPage_idx = 0;
-			uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die + group;
+			uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die;
 
 			// Write page
 			/* build hlm_req_gc for writes */
@@ -1642,13 +1611,10 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi, uint64_t group)
 
 	p->gc_copy_count += p->gc_subpages_move_unit;
 
-	if (group == 0)
+	p->dst_offset += p->nr_dies;
+	if (p->dst_offset == p->nr_punits_pages)
 	{
-		p->dst_offset = req->phyaddr.page_no * p->nr_punits;
-	}
-	else
-	{
-		p->dst_offset += (p->nr_punits/np->nr_groups_per_die);
+		p->dst_offset = 0;
 	}
 
 	if (valid_page_count >= p->required_subpage_count)
@@ -1673,7 +1639,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 	bdbm_device_params_t* np = BDBM_GET_DEVICE_PARAMS(bdi);
 
 	uint64_t group;	
-	static BDBM_GC_STATE eState = 0;
+	static uint64_t eState = 0;
 	static uint64_t group_info[GC_STATE_NUM] = {0,};
 	static uint64_t write_state_count = 0;
 	
@@ -1713,7 +1679,6 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 			uint64_t ret = 0;
 			do
 			{
-				bdbm_msg(" __Read_State, group %d", group);	
 				ret = bdbm_page_ftl_gc_read_state_adv(bdi, group);
 			}
 			while((group == 0) && (ret == 0));
@@ -1741,9 +1706,11 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 				break;
 			}
 			
-			bdbm_msg(" __Write_State group %d : %lld, %lld", group, p->token_count, p->token_mode);	
+			bdbm_msg(" __Write_State group %d : %lld, %lld, %lld", group, p->token_count, p->token_mode, p->dst_offset);	
 			
 			bdbm_page_ftl_gc_write_state_adv(bdi, group);			
+
+			group_info[eState] = group + 1;
 
 			write_state_count++;
 			if (write_state_count == np->nr_groups_per_die)
@@ -2044,5 +2011,4 @@ void bdbm_page_ftl_consume_token (bdbm_drv_info_t* bdi, uint32_t used_token)
 
 void bdbm_page_ftl_flush_meta(bdbm_drv_info_t* bdi)
 {	
-	__bdbm_page_ftl_flush_meta(bdi, /*bGC_meta*/ 0);
 }

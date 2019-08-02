@@ -771,7 +771,7 @@ uint64_t hlm_reqs_pool_compaction(
 	uint64_t* pCount)
 {
 	uint64_t subpage, unit;
-	uint64_t nr_punits = np->nr_units_per_ssd / np->nr_groups_per_die;
+	uint64_t nr_dies = np->nr_units_per_ssd / np->nr_groups_per_die;
 
 	uint64_t src_subpage = 0;
 	uint64_t plane;
@@ -780,7 +780,7 @@ uint64_t hlm_reqs_pool_compaction(
 	bdbm_llm_req_t* dst_req;
 	bdbm_llm_req_t* src_req;
 
-	for (unit = 0; unit < nr_punits; unit++)
+	for (unit = 0; unit < nr_dies; unit++)
 	{
 		dst_req = &dst->llm_reqs[dst_offset + unit];
 		dst_req->dma = 0;
@@ -798,7 +798,7 @@ uint64_t hlm_reqs_pool_compaction(
 				{
 					uint64_t data_copy = 0;
 
-					if (src_idx == nr_punits*10) // check end index of buffered data
+					if (src_idx == np->nr_units_per_ssd * 10) // check end index of buffered data
 					{
 						src_idx = 0; // move to start of buffered data.
 					}
