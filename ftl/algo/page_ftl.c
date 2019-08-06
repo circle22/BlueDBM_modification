@@ -848,6 +848,8 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			{
 				b = p->gc_dst_bab[copy_count][unit];
 				bdbm_abm_make_dirty_blk(p->bai, ch, way, b[plane].block_no);
+
+				bdbm_msg("restore, unit %d, blk : %d", unit, b[plane].block_no);
 			}
 		}
 	
@@ -869,6 +871,8 @@ uint32_t bdbm_page_ftl_get_free_ppa_gc (
 			b->info = 11;//dest
 			b->copy_count = copy_count;
 			p->block_info[copy_count]++;
+
+			bdbm_msg("GC Active  blk : %lld", b->unit_no, b->block_no); 
 		}
 				
 		/* ok; go ahead with 0 offset */ 
@@ -1420,7 +1424,7 @@ uint64_t bdbm_page_ftl_gc_read_pages(bdbm_drv_info_t* bdi, uint64_t unit, uint64
 			req->dma = valid_count; // 0 - DMA bypass, 1 - DMA
 			p->buffered_subpage_count += valid_count;
 
-			bdbm_msg("  read pages: group%lld, page %lld, valid %lld, buffered %lld", group, page+page_offs, valid_count, p->buffered_subpage_count);			
+			//bdbm_msg("  read pages: group%lld, page %lld, valid %lld, buffered %lld", group, page+page_offs, valid_count, p->buffered_subpage_count);			
 			break;
 		}
 	}
@@ -1547,11 +1551,12 @@ uint32_t bdbm_page_ftl_gc_write_state_adv(bdbm_drv_info_t* bdi, uint64_t group)
 		for (ch = 0; ch < np->nr_channels; ch++)
 		{	
 			uint64_t subPage_idx = 0;
-			uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die;
+			uint64_t index = ch * np->nr_ways + way;
+			uint64_t unit = ch * np->nr_units_per_channel + way * np->nr_groups_per_die + group;
 
 			// Write page
 			/* build hlm_req_gc for writes */
-			req = &hlm_gc_w->llm_reqs[p->dst_offset+unit];
+			req = &hlm_gc_w->llm_reqs[p->dst_offset+index];
 			req->req_type = REQTYPE_GC_WRITE; /* change to write */
 
 			for (plane = 0; plane < np->nr_planes; plane++)
@@ -1706,7 +1711,7 @@ uint32_t bdbm_page_ftl_do_gc (bdbm_drv_info_t* bdi, int64_t utilization)
 				break;
 			}
 			
-			bdbm_msg(" __Write_State group %d : %lld, %lld, %lld", group, p->token_count, p->token_mode, p->dst_offset);	
+			//bdbm_msg(" __Write_State group %d : %lld, %lld, %lld", group, p->token_count, p->token_mode, p->dst_offset);	
 			
 			bdbm_page_ftl_gc_write_state_adv(bdi, group);			
 
